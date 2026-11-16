@@ -74,7 +74,7 @@ describe('reader setting storage', () => {
     assert.equal(getLazyRenderRange(), 4);
     assert.equal(getBarSide(), 'bottom');
 
-    for (const direction of ['left-right', 'top-down'] as const) {
+    for (const direction of ['left-right', 'right-left', 'top-down'] as const) {
       saveReadingDirection(direction);
       assert.equal(getReadingDirection(), direction);
     }

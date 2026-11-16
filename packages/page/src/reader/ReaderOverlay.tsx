@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowLeftRight, ArrowDownUp, Bookmark, RotateCcw, Settings, Trash2, Languages, LoaderCircle } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Bookmark, RotateCcw, Settings, Trash2, Languages, LoaderCircle } from 'lucide-react';
 import type { ReadingDirection, BarSide } from './reader-store';
 import { getCacheStats, clearAllCache } from '@tiny-client/shared';
 import { getTranslationControlAction } from '../translation/scheduler';
@@ -148,12 +148,13 @@ function BoundaryHint({
   if (!hint) return null;
   const pct = Math.round(hint.progress * 100);
   const label = hint.dir === 'prev' ? '上一章' : '下一章';
+  const pullRight = (hint.dir === 'prev') !== (direction === 'right-left');
   const Arrow = isVertical
     ? (hint.dir === 'prev' ? ChevronDown : ChevronUp)
-    : (hint.dir === 'prev' ? ChevronRight : ChevronLeft);
+    : (pullRight ? ChevronRight : ChevronLeft);
   const hint2 = isVertical
     ? (hint.dir === 'prev' ? '继续向下拉进入' : '继续向上拉进入')
-    : (hint.dir === 'prev' ? '继续向右拉进入' : '继续向左拉进入');
+    : (pullRight ? '继续向右拉进入' : '继续向左拉进入');
 
   return (
     <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center">
@@ -182,7 +183,7 @@ function SettingsPanel({
   lazyRenderRange,
   barVisible,
   translationConfigured,
-  onToggleDirection,
+  onChangeDirection,
   onToggleAutoSnap,
   onToggleSeamlessMode,
   onChangeLazyRenderRange,
@@ -200,7 +201,7 @@ function SettingsPanel({
   lazyRenderRange: number;
   barVisible: boolean;
   translationConfigured: boolean;
-  onToggleDirection: () => void;
+  onChangeDirection: (direction: ReadingDirection) => void;
   onToggleAutoSnap: () => void;
   onToggleSeamlessMode: () => void;
   onChangeLazyRenderRange: (value: number) => void;
@@ -210,7 +211,6 @@ function SettingsPanel({
   cacheStats: { count: number; totalSize: number } | null;
   onClearCache: () => void;
 }) {
-  const isVertical = direction === 'top-down';
   const closeRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
@@ -239,14 +239,16 @@ function SettingsPanel({
       <div className="p-3 space-y-4">
         <div className="flex min-h-11 items-center justify-between gap-3">
           <span className="text-gray-300 text-xs">阅读方向</span>
-          <button
-            type="button"
-            onClick={onToggleDirection}
+          <select
+            value={direction}
+            onChange={(event) => onChangeDirection(event.target.value as ReadingDirection)}
             className="flex min-h-10 items-center gap-1.5 rounded-md bg-gray-800 px-3 py-1.5 text-xs text-white transition-colors hover:bg-gray-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
-            aria-label={`切换阅读方向，当前为${isVertical ? '上下滚动' : '左右滚动'}`}
+            aria-label="阅读方向"
           >
-            {isVertical ? <><ArrowDownUp size={14} /> 上下滚动</> : <><ArrowLeftRight size={14} /> 左右滚动</>}
-          </button>
+            <option value="left-right">从左到右</option>
+            <option value="right-left">从右到左</option>
+            <option value="top-down">从上到下</option>
+          </select>
         </div>
 
         <SettingSwitch label="自动吸附" checked={autoSnap} onChange={onToggleAutoSnap} />
@@ -353,7 +355,7 @@ export function ReaderOverlay({
   onPrevChapter,
   onNextChapter,
   onGoToChapter,
-  onToggleDirection,
+  onChangeDirection,
   onToggleAutoSnap,
   onToggleSeamlessMode,
   onChangeLazyRenderRange,
@@ -401,7 +403,7 @@ export function ReaderOverlay({
   onPrevChapter: () => void;
   onNextChapter: () => void;
   onGoToChapter: (id: string) => void;
-  onToggleDirection: () => void;
+  onChangeDirection: (direction: ReadingDirection) => void;
   onToggleAutoSnap: () => void;
   onToggleSeamlessMode: () => void;
   onChangeLazyRenderRange: (value: number) => void;
@@ -599,7 +601,8 @@ export function ReaderOverlay({
 
   const onProgressKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     const page = getSeekPageFromKey({
-      key: event.key,
+      key: direction === 'right-left' && event.key === 'ArrowLeft' ? 'ArrowRight'
+        : direction === 'right-left' && event.key === 'ArrowRight' ? 'ArrowLeft' : event.key,
       currentPage,
       totalPages,
       arrowStep: doublePageActive ? 2 : 1,
@@ -611,7 +614,7 @@ export function ReaderOverlay({
     setDragging(true);
     onSeekPage?.(page);
     showTooltipTemporarily();
-  }, [currentPage, doublePageActive, onSeekPage, showTooltipTemporarily, totalPages]);
+  }, [currentPage, direction, doublePageActive, onSeekPage, showTooltipTemporarily, totalPages]);
 
   useEffect(() => {
     return () => {
@@ -630,10 +633,12 @@ export function ReaderOverlay({
       return;
     }
     if (showChapterDrawer || showSettings) return;
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); onScrollByInputStep(-1); }
-    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); onScrollByInputStep(1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); onScrollByInputStep(direction === 'right-left' ? 1 : -1); }
+    if (e.key === 'ArrowRight') { e.preventDefault(); onScrollByInputStep(direction === 'right-left' ? -1 : 1); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); onScrollByInputStep(-1); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); onScrollByInputStep(1); }
     if (e.key === 'f' || e.key === 'F') onVisibilityChange(!visible);
-  }, [closeChapterDrawer, closeSettings, externalDialogOpen, showChapterDrawer, showSettings, onClose, onScrollByInputStep, onVisibilityChange, visible]);
+  }, [closeChapterDrawer, closeSettings, direction, externalDialogOpen, showChapterDrawer, showSettings, onClose, onScrollByInputStep, onVisibilityChange, visible]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyDown);
@@ -666,7 +671,7 @@ export function ReaderOverlay({
             direction={direction} autoSnap={autoSnap} seamlessMode={seamlessMode} lazyRenderRange={lazyRenderRange}
             barVisible={barVisible}
             doublePage={doublePage} onToggleDoublePage={onToggleDoublePage}
-            onToggleDirection={onToggleDirection} onToggleAutoSnap={onToggleAutoSnap}
+            onChangeDirection={onChangeDirection} onToggleAutoSnap={onToggleAutoSnap}
             onToggleSeamlessMode={onToggleSeamlessMode}
             onChangeLazyRenderRange={onChangeLazyRenderRange}
             onToggleBarVisible={onToggleBarVisible}

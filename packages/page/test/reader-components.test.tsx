@@ -36,7 +36,7 @@ function callbacks() {
     onPrevChapter: vi.fn(),
     onNextChapter: vi.fn(),
     onGoToChapter: vi.fn(),
-    onToggleDirection: vi.fn(),
+    onChangeDirection: vi.fn(),
     onToggleAutoSnap: vi.fn(),
     onToggleSeamlessMode: vi.fn(),
     onChangeLazyRenderRange: vi.fn(),
@@ -238,6 +238,23 @@ describe('reader overlay controls', () => {
     assert.equal(screen.queryByRole('dialog', { name: /章节列表/ }), null);
   });
 
+  test('reverses RTL arrow controls and boundary hints while keeping vertical keys chronological', () => {
+    const props = overlayProps({ direction: 'right-left', hint: { dir: 'next', progress: 0.5, chapterName: 'Next' } });
+    const view = render(<ReaderOverlay {...props} />);
+    assert.ok(screen.getByText('继续向右拉进入'));
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    fireEvent.keyDown(window, { key: 'ArrowDown' });
+    assert.deepEqual(props.onScrollByInputStep.mock.calls, [[1], [-1], [-1], [1]]);
+    const progress = screen.getByRole('slider', { name: '阅读进度' });
+    fireEvent.keyDown(progress, { key: 'ArrowLeft' });
+    fireEvent.keyDown(progress, { key: 'ArrowRight' });
+    assert.deepEqual(props.onSeekPage.mock.calls, [[3], [1]]);
+    view.rerender(<ReaderOverlay {...props} hint={{ dir: 'prev', progress: 0.5, chapterName: 'Previous' }} />);
+    assert.ok(screen.getByText('继续向左拉进入'));
+  });
+
   test('operates every setting and clears cache', async () => {
     cacheMocks.getCacheStats
       .mockResolvedValueOnce({ count: 3, totalSize: 2 * 1024 * 1024 })
@@ -255,13 +272,13 @@ describe('reader overlay controls', () => {
     assert.equal(screen.getByRole('switch', { name: '无缝模式' }).getAttribute('aria-checked'), 'true');
     assert.ok(screen.getByTestId('theme-panel'));
 
-    fireEvent.click(screen.getByRole('button', { name: /切换阅读方向/ }));
+    fireEvent.change(screen.getByRole('combobox', { name: '阅读方向' }), { target: { value: 'right-left' } });
     fireEvent.click(screen.getByRole('switch', { name: '自动吸附' }));
     fireEvent.click(screen.getByRole('switch', { name: '无缝模式' }));
     fireEvent.click(screen.getByRole('switch', { name: '显示信息栏' }));
     fireEvent.change(screen.getByRole('slider', { name: '预取页数' }), { target: { value: '7' } });
     fireEvent.click(screen.getByRole('button', { name: /翻译配置/ }));
-    assert.equal(props.onToggleDirection.mock.calls.length, 1);
+    assert.equal(props.onChangeDirection.mock.calls.length, 1);
     assert.equal(props.onToggleAutoSnap.mock.calls.length, 1);
     assert.equal(props.onToggleSeamlessMode.mock.calls.length, 1);
     assert.equal(props.onToggleBarVisible.mock.calls.length, 1);
@@ -286,7 +303,7 @@ describe('reader overlay controls', () => {
     const trigger = screen.getByRole('button', { name: '打开阅读设置' });
     fireEvent.click(trigger);
     const dialog = screen.getByRole('dialog', { name: '阅读设置' });
-    assert.ok(screen.getByRole('button', { name: /左右滚动/ }));
+    assert.equal((screen.getByRole('combobox', { name: '阅读方向' }) as HTMLSelectElement).value, 'left-right');
     assert.ok(screen.getByRole('button', { name: /配置 LLM/ }));
     fireEvent.click(dialog);
     assert.ok(screen.getByRole('dialog', { name: '阅读设置' }));

@@ -11,6 +11,31 @@ export interface PageOffset {
   size: number;
 }
 
+/** Express RTL offsets in reading order, starting at the viewport's right edge. */
+export function normalizePageOffset(offset: PageOffset, viewportWidth: number, reversed: boolean): PageOffset {
+  return reversed ? { start: viewportWidth - offset.start - offset.size, size: offset.size } : offset;
+}
+
+/** Snap targets follow page edges, even when several narrow pages fit in the viewport. */
+export function findNearestPageStart(
+  count: number,
+  position: number,
+  getOffset: (index: number) => PageOffset,
+  { pageStep = 1, maxPosition = Infinity, preferredPage }: { pageStep?: number; maxPosition?: number; preferredPage?: number } = {},
+): number | null {
+  let best: number | null = null;
+  let bestDistance = Infinity;
+  for (let index = 0; index < count; index += pageStep) {
+    const target = Math.max(0, Math.min(maxPosition, getOffset(index).start));
+    const distance = Math.abs(target - position);
+    if (distance < bestDistance || (distance === bestDistance && index === preferredPage)) {
+      bestDistance = distance;
+      best = index;
+    }
+  }
+  return best;
+}
+
 export function measurePageOffset(page: HTMLElement, horizontal: boolean): PageOffset {
   return horizontal
     ? { start: page.offsetLeft, size: page.offsetWidth }

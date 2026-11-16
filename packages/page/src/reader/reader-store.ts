@@ -1,6 +1,6 @@
 import type { Album } from '@tiny-client/shared';
 
-export type ReadingDirection = 'left-right' | 'top-down';
+export type ReadingDirection = 'left-right' | 'right-left' | 'top-down';
 export type BarSide = 'left' | 'right' | 'bottom';
 
 const PROGRESS_PREFIX = 'reading-progress:';
@@ -115,7 +115,7 @@ export function saveReadingDirection(direction: ReadingDirection) {
 
 export function getReadingDirection(): ReadingDirection {
   const raw = localStorage.getItem(DIRECTION_KEY);
-  if (raw === 'left-right' || raw === 'top-down') return raw;
+  if (raw === 'left-right' || raw === 'right-left' || raw === 'top-down') return raw;
   return 'left-right';
 }
 

@@ -10,6 +10,9 @@ import {
 
 describe('reader layout modes', () => {
   it('pairs horizontal pages and pads an odd last page to a complete spread', () => {
+    const rtl = getReaderPageStyle({ direction: 'right-left', seamlessMode: false, doublePage: true, snapEnabled: true, pageIndex: 4, lastPage: true });
+    assert.equal(rtl.marginLeft, '50%');
+    assert.equal(rtl.marginRight, undefined);
     const style = (pageIndex: number, lastPage: boolean, snapEnabled = true) => getReaderPageStyle({ direction: 'left-right', seamlessMode: false, doublePage: true, pageIndex, lastPage, snapEnabled });
     assert.equal(style(0, false).flex, '0 0 50%');
     assert.equal(style(0, false).scrollSnapAlign, 'start');

@@ -6,6 +6,8 @@ import {
   findCenterPage,
   findPageAtCenter,
   measurePageOffset,
+  normalizePageOffset,
+  findNearestPageStart,
 } from '../src/reader/page-geometry';
 
 type FakePage = {
@@ -20,6 +22,17 @@ function fakePage(start: number, size: number): FakePage {
 }
 
 describe('page geometry helpers', () => {
+  it('normalizes RTL geometry and selects the requested page edge rather than a later center', () => {
+    assert.deepEqual(normalizePageOffset({ start: -600, size: 300 }, 300, true), { start: 600, size: 300 });
+    assert.deepEqual(normalizePageOffset({ start: 600, size: 300 }, 300, false), { start: 600, size: 300 });
+    const offset = (i: number) => ({ start: i * 300, size: 300 });
+    assert.equal(findNearestPageStart(5, 300, offset), 1);
+    assert.equal(findNearestPageStart(5, 0, offset), 0);
+    assert.equal(findNearestPageStart(5, 650, offset, { pageStep: 2 }), 2);
+    assert.equal(findNearestPageStart(5, 650, offset, { maxPosition: 650, preferredPage: 4 }), 4);
+    assert.equal(findNearestPageStart(5, 650, offset, { maxPosition: 650 }), 3);
+    assert.equal(findNearestPageStart(0, 0, offset), null);
+  });
   it('measures the horizontal or vertical axis on demand', () => {
     const el = fakePage(40, 20);
     assert.deepEqual(measurePageOffset(el as HTMLElement, false), { start: 40, size: 20 });

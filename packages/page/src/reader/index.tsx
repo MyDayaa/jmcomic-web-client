@@ -61,7 +61,7 @@ import {
   type ZoomPoint,
   type ZoomTransform,
 } from './zoom';
-import { PageOffsetCache, computeVisiblePageIndexes, findCenterPage, findPageAtCenter } from './page-geometry';
+import { PageOffsetCache, computeVisiblePageIndexes, findCenterPage, findPageAtCenter, findNearestPageStart, normalizePageOffset } from './page-geometry';
 import {
   BOUNDARY_RESET_DELAY_MS,
   CHAPTER_SWITCH_UNLOCK_DELAY_MS,
@@ -147,7 +147,7 @@ export default function ReaderPage() {
   const [direction, setDirection] = useState<ReadingDirection>(getReadingDirection);
   const [doublePage, setDoublePage] = useState(getDoublePage);
   const [wideReader, setWideReader] = useState(() => window.matchMedia('(min-width: 720px)').matches);
-  const doublePageActive = doublePage && wideReader && direction === 'left-right';
+  const doublePageActive = doublePage && wideReader && direction !== 'top-down';
   const doublePageRef = useRef(doublePageActive);
   doublePageRef.current = doublePageActive;
   const initialResumeRef = useRef<{ resumePage?: number; historyAlbumId?: string }>(location.state ?? {});
@@ -183,7 +183,11 @@ export default function ReaderPage() {
   const [snapshot, setSnapshot] = useState<{ url: string; w: number; h: number } | null>(null);
   const [transitioning, setTransitioning] = useState(false);
 
-  const isRTL = direction === 'left-right';
+  const reversed = direction === 'right-left';
+  const scrollSignRef = useRef(1);
+  scrollSignRef.current = reversed ? -1 : 1;
+
+  const isHorizontal = direction !== 'top-down';
 
   const pendingNavigationRef = useRef<PendingNavigation | null>(null);
   const landingAnchorRef = useRef<LandingAnchor | null>(null);
@@ -240,8 +244,8 @@ export default function ReaderPage() {
   currentPageRef.current = currentPage;
   blobMapRef.current = blobMap;
   pageAspectRatiosRef.current = pageAspectRatios;
-  const isRTLRef = useRef(isRTL);
-  isRTLRef.current = isRTL;
+  const isHorizontalRef = useRef(isHorizontal);
+  isHorizontalRef.current = isHorizontal;
   const autoSnapRef = useRef(autoSnap);
   autoSnapRef.current = autoSnap;
   const seamlessModeRef = useRef(seamlessMode);
@@ -333,23 +337,26 @@ export default function ReaderPage() {
     setCurrentPage(page);
   }, []);
 
+  const getPageOffset = useCallback((el: HTMLDivElement, index: number) => {
+    const offset = pageOffsetCacheRef.current.get(index, el.children[index] as HTMLElement, isHorizontalRef.current);
+    return normalizePageOffset(offset, el.clientWidth, isHorizontalRef.current && scrollSignRef.current < 0);
+  }, []);
+
+  const getPageScrollLeft = useCallback((el: HTMLDivElement, index: number) => (
+    scrollSignRef.current * Math.max(0, Math.min(el.scrollWidth - el.clientWidth, getPageOffset(el, index).start))
+  ), [getPageOffset]);
+
   const scrollToPage = useCallback((index: number, behavior: ScrollBehavior = 'instant') => {
     const el = containerRef.current;
     if (!el) return;
     const child = el.children[getSpreadStart(index, doublePageRef.current)] as HTMLElement | undefined;
     if (!child) return;
-    if (isRTLRef.current) {
-      el.scrollTo({ left: child.offsetLeft, behavior });
+    if (isHorizontalRef.current) {
+      el.scrollTo({ left: getPageScrollLeft(el, getSpreadStart(index, doublePageRef.current)), behavior });
     } else {
       el.scrollTo({ top: child.offsetTop, behavior });
     }
-  }, []);
-
-  useLayoutEffect(() => {
-    setReaderPage(currentPageRef.current);
-    scrollToPage(currentPageRef.current, 'instant');
-    pageOffsetCacheRef.current.invalidate();
-  }, [doublePageActive, scrollToPage, setReaderPage]);
+  }, [getPageScrollLeft]);
 
   const getSmoothScrollBehavior = useCallback(() => getAnimatedScrollBehavior(
     window.matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -358,9 +365,9 @@ export default function ReaderPage() {
   const getScrollMetrics = useCallback(() => {
     const el = containerRef.current;
     if (!el) return null;
-    if (isRTLRef.current) {
+    if (isHorizontalRef.current) {
       return {
-        position: el.scrollLeft,
+        position: el.scrollLeft * scrollSignRef.current,
         maxPosition: Math.max(el.scrollWidth - el.clientWidth, 0),
       };
     }
@@ -384,22 +391,17 @@ export default function ReaderPage() {
       };
     }
 
-    const center = isRTLRef.current
-      ? el.scrollLeft + el.clientWidth / 2
+    const center = isHorizontalRef.current
+      ? el.scrollLeft * scrollSignRef.current + el.clientWidth / 2
       : el.scrollTop + el.clientHeight / 2;
-    const horizontal = isRTLRef.current;
-    const cache = pageOffsetCacheRef.current;
-    const pageIndex = findPageAtCenter(pages.length, center, (index) => cache.get(index, pages[index], horizontal)) ?? 0;
-
-    const page = pages[pageIndex];
-    const start = horizontal ? page.offsetLeft : page.offsetTop;
-    const size = Math.max(horizontal ? page.offsetWidth : page.offsetHeight, 1);
+    const pageIndex = findPageAtCenter(pages.length, center, (index) => getPageOffset(el, index)) ?? 0;
+    const { start, size } = getPageOffset(el, pageIndex);
     return {
       pageIndex,
       offsetRatio: getReaderAnchorRatio(center, start, size),
       snapToStart: false,
     };
-  }, []);
+  }, [getPageOffset]);
 
   const releaseLandingAnchor = useCallback(() => {
     landingAnchorRef.current = null;
@@ -432,6 +434,33 @@ export default function ReaderPage() {
       PROGRAMMATIC_PAGE_TARGET_TIMEOUT_MS,
     );
   }, [clearProgrammaticPageTarget]);
+
+  const layoutModeRef = useRef({ direction, doublePageActive });
+  useLayoutEffect(() => {
+    const previous = layoutModeRef.current;
+    layoutModeRef.current = { direction, doublePageActive };
+    if (!containerRef.current) return;
+    const page = getSpreadStart(currentPageRef.current, doublePageRef.current);
+    if (previous.direction === direction && previous.doublePageActive === doublePageActive) {
+      pageOffsetCacheRef.current.invalidate();
+      setReaderPage(page);
+      scrollToPage(page, 'instant');
+      return;
+    }
+    const restore = () => {
+      pageOffsetCacheRef.current.invalidate();
+      setReaderPage(page);
+      setProgrammaticPageTarget(page);
+      scrollToPage(page, 'instant');
+    };
+    restore();
+    // Native snap can restore its previous target after the direction reflow.
+    // Reapply the explicit reading page once that layout has settled.
+    const frame = window.requestAnimationFrame(() => {
+      if (currentPageRef.current === page) restore();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [direction, doublePageActive, scrollToPage, setProgrammaticPageTarget, setReaderPage]);
 
   const completeChapterTransition = useCallback((transitionId: number | null, chapterId: string) => {
     if (!isMatchingChapterTransition({
@@ -576,8 +605,8 @@ export default function ReaderPage() {
           element.style.minHeight = `${rect.height}px`;
           element.style.maxWidth = `${rect.width}px`;
           element.style.maxHeight = `${rect.height}px`;
-          element.style.flex = `0 0 ${isRTLRef.current ? rect.width : rect.height}px`;
-          element.style.flexBasis = `${isRTLRef.current ? rect.width : rect.height}px`;
+          element.style.flex = `0 0 ${isHorizontalRef.current ? rect.width : rect.height}px`;
+          element.style.flexBasis = `${isHorizontalRef.current ? rect.width : rect.height}px`;
           element.style.aspectRatio = 'auto';
           element.style.transformOrigin = '0 0';
           element.style.willChange = 'transform';
@@ -688,6 +717,7 @@ export default function ReaderPage() {
     const el = containerRef.current;
     const page = el?.children[anchor.pageIndex] as HTMLElement | undefined;
     if (!el || !page) return;
+    pageOffsetCacheRef.current.invalidate();
 
     setReaderPage(anchor.pageIndex);
     if (anchor.snapToStart) {
@@ -695,15 +725,16 @@ export default function ReaderPage() {
       return;
     }
 
-    if (isRTLRef.current) {
+    if (isHorizontalRef.current) {
+      const offset = getPageOffset(el, anchor.pageIndex);
       const left = getReaderAnchorScrollPosition({
-        pageStart: page.offsetLeft,
-        pageSize: page.offsetWidth,
+        pageStart: offset.start,
+        pageSize: offset.size,
         offsetRatio: anchor.offsetRatio,
         viewportSize: el.clientWidth,
         maxScroll: el.scrollWidth - el.clientWidth,
       });
-      el.scrollTo({ left, behavior: 'instant' });
+      el.scrollTo({ left: left * scrollSignRef.current, behavior: 'instant' });
     } else {
       const top = getReaderAnchorScrollPosition({
         pageStart: page.offsetTop,
@@ -714,7 +745,7 @@ export default function ReaderPage() {
       });
       el.scrollTo({ top, behavior: 'instant' });
     }
-  }, [pageAspectRatios, seamlessMode, scrollToPage, setReaderPage]);
+  }, [getPageOffset, pageAspectRatios, seamlessMode, scrollToPage, setReaderPage]);
 
   useEffect(() => {
     if (!photo) return;
@@ -869,13 +900,13 @@ export default function ReaderPage() {
   const seekPage = useCallback((page: number) => {
     resetZoom();
     releaseLandingAnchor();
-    clearProgrammaticPageTarget();
     const total = imagesCountRef.current;
     if (total === 0) return;
     const clamped = Math.max(0, Math.min(total - 1, page));
+    setProgrammaticPageTarget(clamped);
     setReaderPage(clamped);
     scrollToPage(clamped, 'instant');
-  }, [clearProgrammaticPageTarget, releaseLandingAnchor, resetZoom, scrollToPage, setReaderPage]);
+  }, [releaseLandingAnchor, resetZoom, scrollToPage, setProgrammaticPageTarget, setReaderPage]);
 
   const resetReader = useCallback((newChapterId: string, page?: number | 'last') => {
     if (switchingRef.current || newChapterId === chapterIdRef.current) return false;
@@ -972,7 +1003,7 @@ export default function ReaderPage() {
     resetZoom();
     releaseLandingAnchor();
 
-    if (isRTLRef.current && programmaticPageTargetRef.current !== null) {
+    if (isHorizontalRef.current && programmaticPageTargetRef.current !== null) {
       const nextPage = currentPageRef.current + step * (doublePageRef.current ? 2 : 1);
       if (nextPage < 0 || nextPage >= imagesCountRef.current) {
         clearProgrammaticPageTarget();
@@ -995,7 +1026,7 @@ export default function ReaderPage() {
     }
     if (boundaryDirectionRef.current !== null) cancelBoundaryHint();
 
-    if (isRTLRef.current) {
+    if (isHorizontalRef.current) {
       const target = getSpreadStart(Math.max(0, Math.min(imagesCountRef.current - 1, currentPageRef.current + step * (doublePageRef.current ? 2 : 1))), doublePageRef.current);
       if (target !== currentPageRef.current) {
         setProgrammaticPageTarget(target);
@@ -1005,6 +1036,7 @@ export default function ReaderPage() {
       return;
     }
 
+    clearProgrammaticPageTarget();
     const distance = Math.max(el.clientHeight * 0.9, 1) * step;
     el.scrollBy({ top: distance, behavior: getSmoothScrollBehavior() });
   }, [cancelBoundaryHint, clearProgrammaticPageTarget, getScrollMetrics, getSmoothScrollBehavior, releaseLandingAnchor, resetZoom, scrollToPage, setProgrammaticPageTarget, setReaderPage, showBoundaryToast, switchAdjacentChapter]);
@@ -1045,16 +1077,13 @@ export default function ReaderPage() {
     releaseLandingAnchor();
   }, [clearProgrammaticPageTarget, clearResidentImages, releaseLandingAnchor, resetZoom]);
 
-  const toggleDirection = useCallback(() => {
+  const changeDirection = useCallback((next: ReadingDirection) => {
     resetZoom();
     releaseLandingAnchor();
     clearProgrammaticPageTarget();
     cancelBoundaryHint();
-    setDirection((prev) => {
-      const next: ReadingDirection = prev === 'left-right' ? 'top-down' : 'left-right';
-      saveReadingDirection(next);
-      return next;
-    });
+    setDirection(next);
+    saveReadingDirection(next);
   }, [cancelBoundaryHint, clearProgrammaticPageTarget, releaseLandingAnchor, resetZoom]);
 
   const toggleAutoSnap = useCallback(() => {
@@ -1073,11 +1102,11 @@ export default function ReaderPage() {
     setDoublePage(next);
     saveDoublePage(next);
     if (next) {
-      setDirection('left-right'); saveReadingDirection('left-right');
+      if (direction === 'top-down') { setDirection('left-right'); saveReadingDirection('left-right'); }
       setSeamlessMode(false); saveSeamlessMode(false);
       setAutoSnap(true); saveAutoSnap(true);
     }
-  }, [clearProgrammaticPageTarget, doublePage, releaseLandingAnchor, resetZoom]);
+  }, [clearProgrammaticPageTarget, direction, doublePage, releaseLandingAnchor, resetZoom]);
 
   const toggleSeamlessMode = useCallback(() => {
     resetZoom();
@@ -1309,12 +1338,11 @@ export default function ReaderPage() {
   // ─── scroll observer (page detection only, no snap) ────────────────────────
 
   const updateVisiblePages = useCallback((container: HTMLDivElement) => {
-    const horizontal = isRTLRef.current;
-    const viewportStart = horizontal ? container.scrollLeft : container.scrollTop;
+    const horizontal = isHorizontalRef.current;
+    const viewportStart = horizontal ? container.scrollLeft * scrollSignRef.current : container.scrollTop;
     const viewportEnd = viewportStart + (horizontal ? container.clientWidth : container.clientHeight);
     const count = Math.min(imagesCountRef.current, container.children.length);
-    const cache = pageOffsetCacheRef.current;
-    const getOffset = (pageIndex: number) => cache.get(pageIndex, container.children[pageIndex] as HTMLElement, horizontal);
+    const getOffset = (pageIndex: number) => getPageOffset(container, pageIndex);
     const next = computeVisiblePageIndexes(count, viewportStart, viewportEnd, getOffset);
     if (next.size === 0 && count > 0) next.add(Math.max(0, Math.min(count - 1, currentPageRef.current)));
 
@@ -1322,7 +1350,7 @@ export default function ReaderPage() {
     if (previous.size === next.size && [...next].every((page) => previous.has(page))) return;
     visiblePagesRef.current = next;
     setResidencyRevision((value) => value + 1);
-  }, []);
+  }, [getPageOffset]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -1334,7 +1362,6 @@ export default function ReaderPage() {
     const el = containerRef.current;
     if (!el || !photo || images.length === 0) return;
 
-    const isHorizontal = isRTL;
     const snapEnabled = getReaderInteractionPolicy({ autoSnap, seamlessMode, isZoomed: false }).snapEnabled;
     const shouldSettleHorizontal = isHorizontal && snapEnabled && window.matchMedia('(pointer: fine)').matches;
 
@@ -1350,7 +1377,7 @@ export default function ReaderPage() {
       const page = currentPageRef.current;
       const child = el.children[page] as HTMLElement | undefined;
       if (!child) return;
-      const delta = Math.abs(el.scrollLeft - child.offsetLeft);
+      const delta = Math.abs(el.scrollLeft - getPageScrollLeft(el, page));
       if (delta > 1) scrollToPage(page, getSmoothScrollBehavior());
     };
 
@@ -1358,28 +1385,35 @@ export default function ReaderPage() {
       const children = el.children;
       if (children.length === 0) return;
       updateVisiblePages(el);
+      if (pendingNavigationRef.current !== null) return;
+      const programmaticTarget = programmaticPageTargetRef.current;
+      if (programmaticTarget !== null) {
+        const target = children[programmaticTarget] as HTMLElement | undefined;
+        if (target && !isScrollTargetReached({
+          position: isHorizontal ? el.scrollLeft : el.scrollTop,
+          targetPosition: isHorizontal ? getPageScrollLeft(el, programmaticTarget) : target.offsetTop,
+        })) return;
+        clearProgrammaticPageTarget();
+        if (target) { setReaderPage(programmaticTarget); return; }
+      }
       if (isHorizontal) {
-        if (pendingNavigationRef.current !== null) return;
-        const programmaticTarget = programmaticPageTargetRef.current;
-        if (programmaticTarget !== null) {
-          const target = children[programmaticTarget] as HTMLElement | undefined;
-          if (target && !isScrollTargetReached({
-            position: el.scrollLeft,
-            targetPosition: target.offsetLeft,
-          })) return;
-          clearProgrammaticPageTarget();
-        }
-        const center = el.scrollLeft + el.clientWidth / 2;
-        const cache = pageOffsetCacheRef.current;
-        const getOffset = (i: number) => cache.get(i, children[i] as HTMLElement, true);
-        const best = findCenterPage(children.length, center, getOffset) ?? currentPageRef.current;
+        const position = el.scrollLeft * scrollSignRef.current;
+        const getOffset = (i: number) => getPageOffset(el, i);
+        // Center-based detection advances narrow seamless pages every time the
+        // settling timer aligns their start. Snapping must use that same edge.
+        const best = (snapEnabled
+          ? findNearestPageStart(children.length, position, getOffset, {
+              pageStep: doublePageRef.current ? 2 : 1,
+              maxPosition: Math.max(0, el.scrollWidth - el.clientWidth),
+              preferredPage: currentPageRef.current,
+            })
+          : findPageAtCenter(children.length, position + el.clientWidth / 2, getOffset)) ?? currentPageRef.current;
         if (best !== currentPageRef.current) setReaderPage(best);
         if (shouldSettleHorizontal) {
           clearHorizontalSnapTimer();
           horizontalSnapTimerRef.current = window.setTimeout(settleHorizontalPage, 120);
         }
       } else {
-        if (pendingNavigationRef.current !== null) return;
         const center = el.scrollTop + el.clientHeight / 2;
         const cache = pageOffsetCacheRef.current;
         const getOffset = (i: number) => cache.get(i, children[i] as HTMLElement, false);
@@ -1453,7 +1487,9 @@ export default function ReaderPage() {
         return;
       }
       const dominantDelta = getDominantWheelDelta(e.deltaX, e.deltaY);
-      const inputDelta = isRTLRef.current ? dominantDelta : e.deltaY;
+      const inputDelta = isHorizontalRef.current
+        ? (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? dominantDelta * scrollSignRef.current : dominantDelta)
+        : e.deltaY;
       if (Math.abs(inputDelta) < 4) return;
       const isTrackpad = isLikelyTrackpadWheel(e.deltaMode, e.deltaX, e.deltaY);
       const step = inputDelta > 0 ? 1 : -1;
@@ -1529,18 +1565,19 @@ export default function ReaderPage() {
       releaseLandingAnchor();
 
       const wheelMode = getReaderWheelMode({
-        horizontal: isRTLRef.current,
+        horizontal: isHorizontalRef.current,
         autoSnap: autoSnapRef.current,
         trackpad: isTrackpad,
       });
 
       // Vertical reading keeps native scrolling until it reaches a real boundary.
-      if (wheelMode === 'native') return;
+      if (wheelMode === 'native') { clearProgrammaticPageTarget(); return; }
 
       e.preventDefault();
 
       if (wheelMode === 'continuous') {
-        el.scrollBy({ left: inputDelta, behavior: 'auto' });
+        clearProgrammaticPageTarget();
+        el.scrollBy({ left: inputDelta * scrollSignRef.current, behavior: 'auto' });
         return;
       }
 
@@ -1569,7 +1606,7 @@ export default function ReaderPage() {
     return () => {
       el.removeEventListener('wheel', onWheel);
     };
-  }, [isRTL, photo, getScrollMetrics, releaseLandingAnchor, scrollByInputStep, showBoundaryToast, cancelBoundaryHint, triggerChapterSwitch]);
+  }, [isHorizontal, photo, clearProgrammaticPageTarget, getScrollMetrics, releaseLandingAnchor, scrollByInputStep, showBoundaryToast, cancelBoundaryHint, triggerChapterSwitch]);
 
   // ── touch boundary-pull detection (both directions use native scroll) ──
 
@@ -1628,7 +1665,7 @@ export default function ReaderPage() {
       }
 
       const t = e.touches[0];
-      const axisDelta = isRTLRef.current ? t.clientX - tr.startX : t.clientY - tr.startY;
+      const axisDelta = isHorizontalRef.current ? (t.clientX - tr.startX) * scrollSignRef.current : t.clientY - tr.startY;
       const pull = classifyBoundaryPull({ direction: tr.boundaryDir, axisDelta });
       if (!tr.lockedOutward) {
         if (pull.intent === 'pending') return;
@@ -1706,10 +1743,10 @@ export default function ReaderPage() {
     const el = containerRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    if (isRTL) {
+    if (isHorizontal) {
       const relX = (e.clientX - rect.left) / rect.width;
-      if (relX < 0.33) goPrevPage();
-      else if (relX > 0.67) goNextPage();
+      if (relX < 0.33) { if (reversed) goNextPage(); else goPrevPage(); }
+      else if (relX > 0.67) { if (reversed) goPrevPage(); else goNextPage(); }
       else setShowUI((visible) => !visible);
     } else {
       const relY = (e.clientY - rect.top) / rect.height;
@@ -1717,7 +1754,7 @@ export default function ReaderPage() {
       else if (relY > 0.67) scrollByInputStep(1);
       else setShowUI((visible) => !visible);
     }
-  }, [showUI, isRTL, goPrevPage, goNextPage, scrollByInputStep]);
+  }, [showUI, isHorizontal, reversed, goPrevPage, goNextPage, scrollByInputStep]);
 
   // ─── render ──────────────────────────────────────────────────────────────────
 
@@ -1738,15 +1775,17 @@ export default function ReaderPage() {
 
   const scrollDivStyle: React.CSSProperties = {
     position: 'relative',
-    overflowX: isZoomed ? 'hidden' : (isRTL ? 'auto' : 'hidden'),
-    overflowY: isZoomed ? 'hidden' : (isRTL ? 'hidden' : 'auto'),
+    overflowX: isZoomed ? 'hidden' : (isHorizontal ? 'auto' : 'hidden'),
+    overflowY: isZoomed ? 'hidden' : (isHorizontal ? 'hidden' : 'auto'),
     display: 'flex',
-    flexDirection: isRTL ? 'row' : 'column',
+    flexDirection: isHorizontal ? 'row' : 'column',
+    direction: reversed ? 'rtl' : 'ltr',
+    overflowAnchor: 'none',
     gap: 0,
-    scrollSnapType: readerPolicy.snapEnabled ? (isRTL ? 'x mandatory' : 'y mandatory') : 'none',
+    scrollSnapType: readerPolicy.snapEnabled ? (isHorizontal ? 'x mandatory' : 'y mandatory') : 'none',
     WebkitOverflowScrolling: 'touch',
     overscrollBehavior: 'contain',
-    touchAction: isZoomed ? 'none' : (isRTL ? 'pan-x' : 'pan-y'),
+    touchAction: isZoomed ? 'none' : (isHorizontal ? 'pan-x' : 'pan-y'),
     scrollbarWidth: 'none',
     msOverflowStyle: 'none',
     ...barPad,
@@ -1754,7 +1793,7 @@ export default function ReaderPage() {
 
   const imgCls = doublePageActive ? 'block h-full w-full object-contain' : seamlessMode
     ? 'block h-full w-full object-contain'
-    : isRTL
+    : isHorizontal
       ? 'block w-full h-auto max-h-full object-contain'
       : 'block h-auto w-full object-contain';
 
@@ -1774,7 +1813,7 @@ export default function ReaderPage() {
       className="fixed inset-0 bg-black select-none overflow-hidden"
       style={{
         cursor: showUI ? undefined : 'none',
-        touchAction: isZoomed ? 'none' : (isRTL ? 'pan-x' : 'pan-y'),
+        touchAction: isZoomed ? 'none' : (isHorizontal ? 'pan-x' : 'pan-y'),
       }}
     >
       <style>{`
@@ -1855,7 +1894,7 @@ export default function ReaderPage() {
         onPrevChapter={goPrevChapter}
         onNextChapter={goNextChapter}
         onGoToChapter={goToChapter}
-        onToggleDirection={toggleDirection}
+        onChangeDirection={changeDirection}
         onToggleAutoSnap={toggleAutoSnap}
         onToggleSeamlessMode={toggleSeamlessMode}
         onChangeLazyRenderRange={changeLazyRenderRange}

@@ -6,7 +6,7 @@ const state = vi.hoisted(() => ({
   albumId: '1',
   locationState: null as unknown,
   navigate: vi.fn(),
-  direction: 'left-right' as 'left-right' | 'top-down',
+  direction: 'left-right' as 'left-right' | 'right-left' | 'top-down',
   autoSnap: false,
   doublePage: false,
   wide: false,
@@ -149,7 +149,7 @@ function configureContainer(node: HTMLDivElement, imageCount: number) {
 
   [...node.children].forEach((child, index) => {
     const page = child as HTMLElement;
-    define(page, 'offsetLeft', index * 300);
+    define(page, 'offsetLeft', (state.canvasProps?.direction === 'right-left' ? -1 : 1) * index * 300);
     define(page, 'offsetTop', index * 600);
     define(page, 'offsetWidth', 300);
     define(page, 'offsetHeight', 600);
@@ -361,6 +361,53 @@ describe('ReaderPage integration', () => {
     assert.equal(state.canvasProps?.doublePage, false);
   });
 
+  test('reverses the outward touch pull at an RTL chapter boundary', async () => {
+    state.albumId = '2';
+    state.direction = 'right-left';
+    render(<ReaderPage />);
+    await flushWork();
+    const container = screen.getByTestId('reader-container');
+    act(() => {
+      container.dispatchEvent(touchEvent('touchstart', [{ clientX: 150, clientY: 300 }]));
+      container.dispatchEvent(touchEvent('touchmove', [{ clientX: 50, clientY: 300 }]));
+      container.dispatchEvent(touchEvent('touchend', []));
+    });
+    await flushWork();
+    assert.equal(state.overlayProps?.currentChapterId, '1');
+  });
+
+  test('uses reading-order offsets for RTL input, layout anchors, boundaries and double pages', async () => {
+    state.direction = 'right-left';
+    state.autoSnap = false;
+    state.wide = true;
+    render(<ReaderPage />);
+    await flushWork();
+    const container = screen.getByTestId('reader-container') as HTMLDivElement;
+    const overlay = () => state.overlayProps as Record<string, (...args: never[]) => unknown>;
+    assert.equal((state.canvasProps!.scrollDivStyle as React.CSSProperties).direction, 'rtl');
+    act(() => overlay().onScrollByInputStep(1 as never));
+    assert.equal(container.scrollLeft, -300);
+    fireEvent.scroll(container);
+    assert.equal(state.overlayProps?.currentPage, 1);
+    fireEvent.click(container, { clientX: 10, clientY: 300 });
+    assert.equal(container.scrollLeft, -600);
+    fireEvent.click(container, { clientX: 290, clientY: 300 });
+    assert.equal(container.scrollLeft, -300);
+    fireEvent.wheel(container, { deltaX: -20, deltaY: 0, deltaMode: 0 });
+    assert.equal(container.scrollLeft, -320);
+    const image = container.querySelector('img')!;
+    Object.defineProperty(image, 'naturalWidth', { configurable: true, value: 450 });
+    act(() => (state.canvasProps!.onImageLoad as (chapter: string, index: number, image: HTMLImageElement) => void)('1', 0, image));
+    assert.equal(container.scrollLeft, -320);
+    act(() => overlay().onToggleDoublePage());
+    assert.equal(state.canvasProps?.direction, 'right-left');
+    assert.equal(state.canvasProps?.doublePage, true);
+    act(() => overlay().onToggleDoublePage());
+    act(() => overlay().onChangeDirection('top-down' as never));
+    act(() => overlay().onToggleDoublePage());
+    assert.equal(state.canvasProps?.direction, 'left-right');
+  });
+
   test('handles horizontal controls, clicks, wheel modes, and image residency', async () => {
     const view = render(<ReaderPage />);
     await flushWork();
@@ -380,9 +427,9 @@ describe('ReaderPage integration', () => {
     assert.equal(root.style.cursor, 'none');
     act(() => overlay.onVisibilityChange(true as never));
     assert.equal(root.style.cursor, '');
-    act(() => overlay.onToggleDirection());
+    act(() => overlay.onChangeDirection('top-down' as never));
     assert.deepEqual(state.saveReadingDirection.mock.calls[0], ['top-down']);
-    act(() => overlay.onToggleDirection());
+    act(() => overlay.onChangeDirection('left-right' as never));
     assert.deepEqual(state.saveReadingDirection.mock.calls[1], ['left-right']);
     act(() => overlay.onToggleAutoSnap());
     assert.deepEqual(state.saveAutoSnap.mock.calls[0], [true]);

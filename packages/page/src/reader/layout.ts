@@ -58,13 +58,13 @@ export function getReaderPageStyle({
   pageIndex?: number;
   lastPage?: boolean;
 }): CSSProperties {
-  if (doublePage && direction === 'left-right') {
+  if (doublePage && direction !== 'top-down') {
     return {
       flex: '0 0 50%', width: '50%', height: '100%',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       scrollSnapAlign: snapEnabled && pageIndex % 2 === 0 ? 'start' : undefined,
       scrollSnapStop: snapEnabled && pageIndex % 2 === 0 ? 'always' : undefined,
-      marginRight: lastPage && pageIndex % 2 === 0 ? '50%' : undefined,
+      [direction === 'right-left' ? 'marginLeft' : 'marginRight']: lastPage && pageIndex % 2 === 0 ? '50%' : undefined,
     };
   }
   const snapStyle: CSSProperties = {
@@ -72,7 +72,7 @@ export function getReaderPageStyle({
     scrollSnapStop: snapEnabled ? 'always' : undefined,
   };
 
-  if (direction === 'left-right') {
+  if (direction !== 'top-down') {
     if (seamlessMode) {
       return {
         flex: aspectRatio ? '0 0 auto' : '0 0 100%',
