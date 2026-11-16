@@ -153,8 +153,9 @@ export function useReaderData(options: {
       return loadChapterPhoto(currentChapterId, signal);
     },
     enabled: !!currentChapterId,
+    // Null is fresh query data too; a missing navigation photo must still fetch.
     // eslint-disable-next-line react-hooks/refs -- initial navigation data is captured once per route mount
-    initialData: currentChapterId === mountAlbumId ? initialPhotoRef.current : undefined,
+    initialData: currentChapterId === mountAlbumId ? initialPhotoRef.current ?? undefined : undefined,
     staleTime: PHOTO_QUERY_STALE_TIME_MS,
   });
 

@@ -122,6 +122,23 @@ describe('useReaderData', () => {
     assert.ok(cacheMocks.setCachedAlbum.mock.calls.some((call) => call[0] === '1' && call[1] === album && call[2] === photo1));
   });
 
+  test.each([null, { photo: null }])('loads the mounted chapter from a direct reader link with no navigation photo (%j)', async (locationState) => {
+    const standalone = { id: 'solo', name: 'Solo', series: [] } as never;
+    const standalonePhoto = { ...photo1, id: 'solo' } as never;
+    apiMocks.getAlbumWithMeta.mockResolvedValue({ data: standalone, cacheMeta: {} });
+    apiMocks.getPhotoWithMeta.mockResolvedValue({ data: standalonePhoto, cacheMeta: {} });
+    const { result } = renderHook(() => useReaderData({
+      albumId: 'solo',
+      locationState,
+      currentChapterId: 'solo',
+      mountAlbumId: 'solo',
+    }), { wrapper: createWrapper() });
+
+    await waitFor(() => assert.equal(result.current.photo, standalonePhoto));
+    assert.equal(apiMocks.getPhotoWithMeta.mock.calls[0][0], 'solo');
+    assert.equal(result.current.images.length, 1);
+  });
+
   test('renders stale reader data and replaces it after forced background refreshes', async () => {
     const refreshedAlbum = { ...album, name: 'Refreshed series' } as never;
     const refreshedPhoto = { ...photo1, name: 'Refreshed chapter' } as never;

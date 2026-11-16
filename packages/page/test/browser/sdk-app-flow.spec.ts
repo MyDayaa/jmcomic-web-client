@@ -5,6 +5,30 @@ import { readFile } from 'node:fs/promises';
 // PWA registration/upgrades are covered separately by pwa-upgrade.spec.ts.
 test.use({ serviceWorkers: 'block' });
 
+test('a fresh direct reader link fetches its chapter and displays a decoded page', async ({ page }) => {
+    const image = await readFile('../sdk/test/fixtures/720x1016-2.png');
+    const album = { id: '123', name: 'Direct reader fixture', images: [], description: null, totalViews: '1', likes: '1', series: [], seriesID: '', author: ['Fixture'], tags: [], works: [], actors: [] };
+    const photo = { id: '123', name: album.name, scrambleId: 1, images: [{ name: '001.png', url: 'http://backend.test/images/001.png' }] };
+    const paths = new Set<string>();
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.route('http://backend.test/**', async route => {
+        const path = new URL(route.request().url()).pathname;
+        paths.add(path);
+        const headers = { 'Access-Control-Allow-Origin': '*' };
+        if (path === '/images/001.png') return route.fulfill({ contentType: 'image/png', headers, body: image });
+        const result = path === '/album/123' ? album : path === '/photo/123' ? photo : null;
+        await route.fulfill({ status: result ? 200 : 404, headers, json: result });
+    });
+
+    await page.goto('/reader/123');
+    await expect(page.locator('[data-reader-root]')).toBeVisible();
+    await expect.poll(() => page.locator('[data-reader-root] img').evaluateAll(images => images.some(image => image.complete && image.naturalWidth === 720 && image.naturalHeight === 1016))).toBe(true);
+    expect(paths.has('/photo/123')).toBe(true);
+    expect(paths.has('/images/001.png')).toBe(true);
+    expect(errors).toEqual([]);
+});
+
 test('fresh search, detail and reader process upstream images through the SDK worker', async ({ page }) => {
     const image = await readFile('../sdk/test/fixtures/720x1016-2.png');
     const album = { id: '123', name: 'SDK migration fixture', images: ['001.png'], description: null, totalViews: '123', likes: '7', series: [], seriesID: '', author: ['Fixture'], tags: ['SDK'], works: [], actors: [] };
