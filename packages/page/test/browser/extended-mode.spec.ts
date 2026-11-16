@@ -34,7 +34,7 @@ async function mockBackend(page: Page, options: { favoriteStatus?: number } = {}
             favorite = !favorite;
             return route.fulfill({ headers, json: { ok: true, message: favorite ? '已加入收藏' : '已取消收藏', type: favorite ? 'add' : 'del' } });
         }
-        if (path === '/api/mobile/account/like') return route.fulfill({ headers, json: { ok: true, message: '已点赞' } });
+        if (path === '/api/mobile/account/like') return route.fulfill({ headers, json: { ok: true, message: '評價成功!' } });
         if (path in routes) return route.fulfill({ headers, json: routes[path] });
         return route.fulfill({ status: 404, headers, json: { error: { code: 'NOT_FOUND', message: path } } });
     });
@@ -87,6 +87,7 @@ test.describe('mobile viewport', () => {
         await collected.click();
         await expect(page.getByRole('button', { name: '收藏', exact: true })).toHaveAttribute('aria-pressed', 'false');
         await page.getByRole('button', { name: '点赞', exact: true }).click();
+        await expect(page.getByText('評價成功!')).toBeVisible();
         await expect(page.getByRole('button', { name: '已点赞', exact: true })).toHaveAttribute('aria-pressed', 'true');
         await expect(page.getByRole('button', { name: '已点赞', exact: true }).locator('svg')).toHaveAttribute('fill', 'currentColor');
 
@@ -98,6 +99,10 @@ test.describe('mobile viewport', () => {
 
         await page.reload();
         await expect(page.getByRole('navigation', { name: '主导航' })).toBeVisible();
+        await page.getByText('Promoted fixture').click();
+        await expect(page.getByRole('button', { name: '已点赞', exact: true })).toHaveAttribute('aria-pressed', 'true');
+        await expect(page.getByRole('button', { name: '已点赞', exact: true }).locator('svg')).toHaveAttribute('fill', 'currentColor');
+        expect(requests.filter((request) => request.path === '/api/mobile/account/like')).toHaveLength(1);
     });
 
     test('an expired session sends the user back to the login form', async ({ page }) => {

@@ -142,6 +142,26 @@ describe('account routes', () => {
 		expect(seen.at(-1)!.form).toEqual({ aid: '123', comment: 'Hi', comment_id: '9' });
 	});
 
+	it('recognizes the reported like confirmation with an unfamiliar status, only on the like route', async () => {
+		const { session } = await login();
+		// The reported message is real; status variants exercise compatibility, not captured payloads.
+		for (const status of ['success', 200, '200', 0]) {
+			respond = () => ({ status, msg: '評價成功!' });
+			const before = seen.length;
+			expect(await (await request('/like', { session, json: { aid: '1199391' } })).json()).toEqual({ ok: true, message: '評價成功!' });
+			expect(seen.length - before).toBe(1);
+			expect(seen.at(-1)!.form).toEqual({ id: '1199391' });
+		}
+		respond = () => ({ status: 'success', msg: '評價成功!' });
+		expect(await (await request('/favorite', { session, json: { aid: '1199391' } })).json()).toEqual({ ok: false, message: '評價成功!' });
+		respond = () => ({ status: 'success', msg: '  评价成功！  ' });
+		expect(await (await request('/like', { session, json: { aid: '1199391' } })).json()).toMatchObject({ ok: true });
+		for (const msg of ['評價失敗!', '評價不成功!', '請先登入', '已達評價上限', '評價成功! 請重試', '']) {
+			respond = () => ({ status: 'fail', msg });
+			expect(await (await request('/like', { session, json: { aid: '1199391' } })).json()).toEqual({ ok: false, message: msg });
+		}
+	});
+
 	it('shows wrong passwords as a business refusal', async () => {
 		respond = () => Response.json({ code: 400, errorMsg: '帳號或密碼錯誤' }, { status: 400 });
 		const response = await request('/login', { json: { username: 'user', password: 'wrong' } });

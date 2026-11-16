@@ -110,7 +110,15 @@ const routes: Record<string, AccountRoute> = {
 			return result(await client.editFavoriteFolder(edit, { signal }));
 		},
 	},
-	'/like': { method: 'POST', auth: true, run: async (client, input, { signal }) => result(await client.like(digits(input, 'aid'), { signal })) },
+	'/like': {
+		method: 'POST', auth: true,
+		async run(client, input, { signal }) {
+			const reply = result(await client.like(digits(input, 'aid'), { signal }));
+			// /like can confirm the rating with a status outside the SDK's generic write enum.
+			// Match only its complete confirmation; failures and other write routes stay unchanged.
+			return { ...reply, ok: reply.ok || /^(?:評價|评价)成功[!！。.]?$/.test(reply.message.trim()) };
+		},
+	},
 	'/comment': {
 		method: 'POST', auth: true,
 		run: async (client, input, { signal }) => result(await client.comment({
