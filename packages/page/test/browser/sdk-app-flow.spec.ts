@@ -61,6 +61,7 @@ test('a fresh direct reader link fetches its chapter and displays a decoded page
     expect([...scripts].filter(script => ocrFiles.includes(script))).toEqual([]);
     expect(codecs.size).toBe(2);
     expect(scripts.has(themeFile)).toBe(false);
+    await page.mouse.move(500, 350);
     await page.getByRole('button', { name: '打开阅读设置' }).click();
     await expect(page.getByText('显示模式', { exact: true })).toBeVisible();
     expect(scripts.has(themeFile)).toBe(true);
