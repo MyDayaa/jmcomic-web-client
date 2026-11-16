@@ -6,7 +6,7 @@ import {
     setCachedImageMetadata,
 } from './cache';
 import { getSliceCount } from './data';
-import { processImage } from './image-bridge';
+import { prepareImageProcessing, processImage } from './image-bridge';
 
 export interface ProcessedImage {
     data: ArrayBuffer;
@@ -105,6 +105,8 @@ export async function getProcessedPhotoImage(
         };
     }
 
+    // Only uncached pages need codecs; do not delay downloading their source.
+    prepareImageProcessing(image.name);
     const fetchImpl = options.fetchImpl ?? fetch;
     let source: ArrayBuffer | null = null;
     let lastError: unknown;

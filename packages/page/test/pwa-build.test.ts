@@ -50,6 +50,33 @@ async function readDistFile(filename: string) {
 }
 
 describe('PWA build output', () => {
+  it('preconnects to the configured backend before any application scripts run', async () => {
+    const backend = process.env.VITE_BACKEND_URL?.trim();
+    if (!backend) return;
+    const html = await readDistFile('index.html');
+    const head = html.slice(0, html.indexOf('<script'));
+    assert.ok(head.includes('rel="preconnect"'));
+    assert.ok(head.includes('rel="dns-prefetch"'));
+    assert.ok(head.includes(new URL(backend).origin));
+    assert.ok(head.includes('crossorigin="anonymous"'));
+  });
+
+  it('does not load the theme settings on the initial reader dependency path', async () => {
+    const manifest = JSON.parse(await readDistFile('.vite/manifest.json')) as Record<string, BuildChunk>;
+    const reader = 'src/reader/index.tsx';
+    assert.ok(manifest[reader]);
+    const theme = 'src/theme/ThemeControls.tsx';
+    assert.ok(manifest[theme]);
+    const visited = new Set<string>();
+    const visit = (key: string) => {
+      if (visited.has(key)) return;
+      visited.add(key);
+      for (const dependency of manifest[key].imports ?? []) visit(dependency);
+    };
+    visit(reader);
+    assert.ok(!visited.has(theme));
+  });
+
   it('keeps OCR out of startup dependencies while preserving its lazy import', async () => {
     const manifest = JSON.parse(await readDistFile('.vite/manifest.json')) as Record<string, BuildChunk>;
     const ocrKey = Object.keys(manifest).find(key => key.includes('@paddleocr/paddleocr-js/dist/index.mjs'));

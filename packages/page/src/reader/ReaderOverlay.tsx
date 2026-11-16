@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { X, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ArrowLeftRight, ArrowDownUp, Bookmark, RotateCcw, Settings, Trash2, Languages, LoaderCircle } from 'lucide-react';
 import type { ReadingDirection, BarSide } from './reader-store';
 import { getCacheStats, clearAllCache } from '@tiny-client/shared';
-import { ThemePanel } from '../theme/ThemeControls';
 import { getTranslationControlAction } from '../translation/scheduler';
 import { getSeekPageFromKey } from './input';
 import {
@@ -10,6 +9,8 @@ import {
   READER_DESKTOP_POINTER_QUERY,
   type ReaderUiIdleController,
 } from './idle-ui';
+
+const ThemePanel = lazy(() => import('../theme/ThemeControls').then(module => ({ default: module.ThemePanel })));
 
 type ChapterInfo = { id: string; name: string; order: number };
 
@@ -281,7 +282,7 @@ function SettingsPanel({
 
         <div className="border-t border-gray-700/50 pt-3">
           <div className="mb-3 text-xs font-medium text-gray-300">外观</div>
-          <ThemePanel tone="dark" />
+          <Suspense fallback={null}><ThemePanel tone="dark" /></Suspense>
         </div>
 
         <div className="border-t border-gray-700/50 pt-3">

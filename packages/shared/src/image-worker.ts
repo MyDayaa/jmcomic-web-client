@@ -1,5 +1,6 @@
 import { createImageProcessor, imageInfo, type WasmName } from 'jmcomic-sdk-pwa/image';
 import type { ImageOptions } from 'jmcomic-sdk-pwa';
+import type { ImageCodecHint } from './image-bridge';
 import jpegDec from 'jmcomic-sdk-pwa/wasm/mozjpeg_dec.wasm?url';
 import jpegEnc from 'jmcomic-sdk-pwa/wasm/mozjpeg_enc.wasm?url';
 import png from 'jmcomic-sdk-pwa/wasm/squoosh_png_bg.wasm?url';
@@ -22,10 +23,20 @@ function loadWasm(name: WasmName): Promise<WebAssembly.Module> {
 }
 const processor = createImageProcessor({ loadWasm });
 const context = globalThis as unknown as {
-    onmessage: (event: MessageEvent<{ id: number; data: ArrayBuffer; slices: number; options: ImageOptions }>) => void;
+    onmessage: (event: MessageEvent<
+        { type: 'prepare'; input: ImageCodecHint }
+        | { type?: never; id: number; data: ArrayBuffer; slices: number; options: ImageOptions }
+    >) => void;
     postMessage: (message: unknown, transfer?: Transferable[]) => void;
 };
 context.onmessage = async ({ data: job }) => {
+    if (job.type === 'prepare') {
+        const decoder = job.input === 'jpeg' ? 'jpeg-dec' : job.input === 'webp' ? 'webp-dec' : 'png';
+        // A filename is only a hint. Normal processing sniffs the actual bytes
+        // and retries failed downloads through the same module cache.
+        void Promise.all([loadWasm(decoder), loadWasm('jpeg-enc')]).catch(() => {});
+        return;
+    }
     try {
         const bytes = new Uint8Array(job.data);
         // Download only this image's decoder and output encoder, in parallel.

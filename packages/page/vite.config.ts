@@ -45,6 +45,21 @@ export default defineConfig({
     __APP_RELEASE_ID__: JSON.stringify(releaseMetadata.commit),
   },
   plugins: [
+    {
+      name: 'backend-connection-hints',
+      transformIndexHtml() {
+        let origin: string;
+        try {
+          const url = new URL(process.env.VITE_BACKEND_URL?.trim() ?? '');
+          if (!['http:', 'https:'].includes(url.protocol)) return [];
+          origin = url.origin;
+        } catch { return []; }
+        return [
+          { tag: 'link', attrs: { rel: 'dns-prefetch', href: origin }, injectTo: 'head-prepend' },
+          { tag: 'link', attrs: { rel: 'preconnect', href: origin, crossorigin: 'anonymous' }, injectTo: 'head-prepend' },
+        ];
+      },
+    },
     react({
       babel: {
         plugins: [['babel-plugin-react-compiler']],

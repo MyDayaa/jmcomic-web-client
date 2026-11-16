@@ -26,6 +26,15 @@ test('a fresh direct reader link fetches its chapter and displays a decoded page
     const scripts = new Set<string>();
     const manifest = JSON.parse(await readFile('dist/.vite/manifest.json', 'utf8')) as Record<string, { file: string }>;
     const ocrFiles = Object.entries(manifest).filter(([key]) => /paddleocr|onnxruntime/.test(key)).map(([, chunk]) => chunk.file);
+    const themeFile = manifest['src/theme/ThemeControls.tsx'].file;
+    const codecs = new Set<string>();
+    let releaseImage!: () => void;
+    const codecsStarted = new Promise<void>(resolve => { releaseImage = resolve; });
+    page.context().on('request', request => {
+        const path = new URL(request.url()).pathname;
+        if (/\/assets-v3\/(?:squoosh_png_bg|mozjpeg_enc)-.*\.wasm$/.test(path)) codecs.add(path);
+        if (codecs.size === 2) releaseImage();
+    });
     page.on('request', request => {
         if (request.resourceType() === 'script') scripts.add(new URL(request.url()).pathname.slice(1));
     });
@@ -34,7 +43,11 @@ test('a fresh direct reader link fetches its chapter and displays a decoded page
         const path = new URL(route.request().url()).pathname;
         paths.add(path);
         const headers = { 'Access-Control-Allow-Origin': '*' };
-        if (path === '/images/001.png') return route.fulfill({ contentType: 'image/png', headers, body: image });
+        if (path === '/images/001.png') {
+            // The decoder must start before the source finishes downloading.
+            await codecsStarted;
+            return route.fulfill({ contentType: 'image/png', headers, body: image });
+        }
         const result = path === '/album/123' ? album : path === '/photo/123' ? photo : null;
         await route.fulfill({ status: result ? 200 : 404, headers, json: result });
     });
@@ -46,6 +59,11 @@ test('a fresh direct reader link fetches its chapter and displays a decoded page
     expect(paths.has('/images/001.png')).toBe(true);
     expect(errors).toEqual([]);
     expect([...scripts].filter(script => ocrFiles.includes(script))).toEqual([]);
+    expect(codecs.size).toBe(2);
+    expect(scripts.has(themeFile)).toBe(false);
+    await page.getByRole('button', { name: '打开阅读设置' }).click();
+    await expect(page.getByText('显示模式', { exact: true })).toBeVisible();
+    expect(scripts.has(themeFile)).toBe(true);
 });
 
 test('fresh search, detail and reader process upstream images through the SDK worker', async ({ page }) => {

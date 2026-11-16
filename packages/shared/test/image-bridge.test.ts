@@ -14,6 +14,43 @@ class Transport {
     }
 }
 
+test('preparation reuses the worker, preserves processing order and resets after disposal', async () => {
+    const transports: Transport[] = [];
+    const client = new ImageWorkerClient(() => {
+        const transport = new Transport(); transports.push(transport); return transport as unknown as Worker;
+    });
+    client.prepare('webp');
+    client.prepare('webp');
+    assert.deepEqual(transports[0].sent, [{ type: 'prepare', input: 'webp' }]);
+    const first = client.process(new ArrayBuffer(1), 0);
+    client.prepare('png');
+    const second = client.process(new ArrayBuffer(1), 0);
+    assert.equal(transports.length, 1);
+    assert.equal(transports[0].sent.length, 3);
+    transports[0].finish(1);
+    transports[0].finish(3);
+    await Promise.all([first, second]);
+    client.dispose();
+    client.prepare('webp');
+    assert.equal(transports.length, 2);
+    assert.deepEqual(transports[1].sent, [{ type: 'prepare', input: 'webp' }]);
+    client.dispose();
+});
+
+test('failed speculative startup does not prevent a later image from being processed', async () => {
+    const transport = new Transport();
+    let calls = 0;
+    const client = new ImageWorkerClient(() => {
+        if (calls++ === 0) throw new Error('temporary startup failure');
+        return transport as unknown as Worker;
+    });
+    client.prepare('jpeg');
+    const result = client.process(new ArrayBuffer(1), 0);
+    transport.finish(0);
+    assert.equal((await result).width, 1);
+    client.dispose();
+});
+
 test('image bridge cancels queued and active consumers without misrouting the next result', async () => {
     const transport = new Transport();
     const client = new ImageWorkerClient(() => transport as unknown as Worker);

@@ -231,7 +231,10 @@ describe('reader overlay controls', () => {
     const props = overlayProps();
     render(<ReaderOverlay {...props} />);
     const trigger = screen.getByRole('button', { name: '打开阅读设置' });
-    fireEvent.click(trigger);
+    await act(async () => {
+      fireEvent.click(trigger);
+      await vi.dynamicImportSettled();
+    });
     screen.getByRole('dialog', { name: '阅读设置' });
     assert.equal(document.activeElement, screen.getByRole('button', { name: '关闭阅读设置' }));
     assert.equal(screen.getByRole('switch', { name: '自动吸附' }).getAttribute('aria-checked'), 'false');
