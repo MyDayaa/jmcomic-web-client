@@ -13,9 +13,10 @@ function Harness({ initial = '' }: { initial?: string }) {
   const [value, setValue] = useState(initial);
   const search = useTagSearch({ value, onChange: setValue });
   return (
-    <form onSubmit={(event) => { event.preventDefault(); submitted.push(value); }}>
+    <form onSubmit={(event) => { event.preventDefault(); if (!search.isComposing()) submitted.push(value); }}>
       <TagChips search={search} />
       <input name="query" aria-label="搜索内容" value={search.draft} onChange={search.onInputChange} onKeyDown={search.onKeyDown}
+        onCompositionStart={search.onCompositionStart} onCompositionEnd={search.onCompositionEnd}
         onFocus={search.onFocus} onBlur={search.onBlur} />
       <TagSuggestions search={search} />
       <output data-testid="value">{value}</output>
@@ -31,6 +32,26 @@ const type = (text: string) => fireEvent.change(input(), { target: { value: text
 beforeEach(() => { submitted = []; localStorage.clear(); });
 
 describe('tag search box', () => {
+  test('IME candidate spaces, Enter, Tab and blur do not tokenize unfinished pinyin', () => {
+    render(<Harness initial="作者" />);
+    fireEvent.compositionStart(input());
+    type('shuang pin shu ru');
+    fireEvent.keyDown(input(), { key: 'Enter', keyCode: 229, isComposing: true });
+    fireEvent.keyDown(input(), { key: 'Tab', isComposing: true });
+    fireEvent.blur(input());
+    assert.deepEqual(chips(), ['作者']);
+    assert.equal(input().value, 'shuang pin shu ru');
+    assert.equal(value(), '作者');
+    type('双拼输入');
+    fireEvent.compositionEnd(input(), { data: '双拼输入' });
+    assert.equal(value(), '+作者 +双拼输入');
+    assert.deepEqual(chips(), ['作者']);
+    fireEvent.keyDown(input(), { key: 'Enter', keyCode: 229 });
+    assert.deepEqual(chips(), ['作者']);
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    assert.deepEqual(chips(), ['作者', '双拼输入']);
+  });
+
   test('separators turn text into chips; the draft is part of the query; - makes an exclude chip', () => {
     render(<Harness />);
     type('巨乳');

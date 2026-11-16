@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import { loadAccount } from './session';
+import { seedEngagement } from './engagement';
 import type { SearchResult } from "@tiny-client/shared";
 import { AlbumCard } from "../home/AlbumCard";
 import { useAlbumBatch } from "../home/useAlbumBatch";
@@ -31,7 +33,14 @@ export function ComicGrid({ items, layout = "grid", renderAction }: {
                     <AlbumCard
                         item={item}
                         cachedData={albumCache.get(item.id)}
-                        onClick={() => openAlbum(item.id, albumCache.get(item.id))}
+                        onClick={() => {
+                            const account = loadAccount();
+                            if (account && (item.favorite !== null || item.liked !== null)) seedEngagement(account.member.uid, item.id, {
+                                ...(item.favorite !== null ? { favorite: item.favorite } : {}),
+                                ...(item.liked !== null ? { liked: item.liked } : {}),
+                            });
+                            openAlbum(item.id, albumCache.get(item.id));
+                        }}
                         cardRef={getCardRef(item.id)}
                     />
                     {renderAction?.(item)}

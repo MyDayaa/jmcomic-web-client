@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { beforeEach, describe, it } from 'vitest';
 import {
   cleanupAlbumCache,
+  getDoublePage,
+  saveDoublePage,
   getAutoSnap,
   getAlbumMeta,
   getBarSide,
@@ -37,6 +39,16 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 describe('reader setting storage', () => {
   beforeEach(() => localStorage.clear());
+
+  it('persists the double-page preference and tolerates unavailable storage', () => {
+    assert.equal(getDoublePage(), false);
+    saveDoublePage(true); assert.equal(getDoublePage(), true);
+    saveDoublePage(false); assert.equal(getDoublePage(), false);
+    const storage = globalThis.localStorage;
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('blocked'); } });
+    try { saveDoublePage(true); assert.equal(getDoublePage(), false); }
+    finally { Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: storage }); }
+  });
 
   it('does not change auto snap when seamless mode is disabled', () => {
     saveAutoSnap(true);

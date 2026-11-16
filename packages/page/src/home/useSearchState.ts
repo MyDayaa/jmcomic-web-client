@@ -6,6 +6,7 @@ import type { SearchResult } from "@tiny-client/shared";
 import { getSearchResultIds, SEARCH_PAGE_SIZE } from "@tiny-client/shared";
 import { parseQuery } from "../search/query";
 import { recordSearch } from "../search/vocabulary";
+import { rememberSearch } from "../history/store";
 
 /**
  * Search retry policy: connection-level failures (the browser reports a TypeError, e.g. when
@@ -36,6 +37,9 @@ export function useSearchState(onNavigate: () => void) {
     const urlOrderBy  = (urlParams.get('order') ?? 'mr') as "mr"|"mv"|"mp"|"tf";
     const urlTime     = (urlParams.get('time') ?? 'a') as "a"|"t"|"w"|"m";
     const urlPage     = parseInt(urlParams.get('page') ?? '1') || 1;
+    useEffect(() => {
+        if (urlQuery.trim()) rememberSearch({ query: urlQuery, category: urlCategory, order: urlOrderBy, time: urlTime });
+    }, [urlQuery, urlCategory, urlOrderBy, urlTime]);
 
     // local input state (controlled input, not yet submitted)
     const [query, setQuery]           = useState(urlQuery);
@@ -49,6 +53,12 @@ export function useSearchState(onNavigate: () => void) {
     const [orderBy, setOrderBy]       = useState<"mr"|"mv"|"mp"|"tf">(urlOrderBy);
     const [timeFilter, setTimeFilter] = useState<"a"|"t"|"w"|"m">(urlTime);
     const [queryError, setQueryError] = useState<string | null>(null);
+    const filters = `${urlCategory}\u0000${urlOrderBy}\u0000${urlTime}`;
+    const [syncedFilters, setSyncedFilters] = useState(filters);
+    if (filters !== syncedFilters) {
+        setSyncedFilters(filters);
+        setCategory(urlCategory); setOrderBy(urlOrderBy); setTimeFilter(urlTime);
+    }
 
     const listRef = useRef<HTMLDivElement>(null);
     const lastSettledSearchRef = useRef<SettledSearch | null>(null);

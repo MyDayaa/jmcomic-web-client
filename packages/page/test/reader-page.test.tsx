@@ -8,6 +8,11 @@ const state = vi.hoisted(() => ({
   navigate: vi.fn(),
   direction: 'left-right' as 'left-right' | 'top-down',
   autoSnap: false,
+  doublePage: false,
+  wide: false,
+  mediaCallback: null as null | (() => void),
+  rememberReading: vi.fn(),
+  saveDoublePage: vi.fn(),
   seamlessMode: true,
   lazyRange: 2,
   barSide: 'bottom' as 'left' | 'right' | 'bottom',
@@ -76,6 +81,8 @@ vi.mock('../src/reader/useReaderData', () => ({
 }));
 
 vi.mock('../src/reader/reader-store', () => ({
+  getDoublePage: () => state.doublePage,
+  saveDoublePage: state.saveDoublePage,
   getReadingDirection: () => state.direction,
   saveReadingDirection: state.saveReadingDirection,
   getReadingProgress: () => state.progress,
@@ -89,6 +96,8 @@ vi.mock('../src/reader/reader-store', () => ({
   getBarSide: () => state.barSide,
   saveReadingProgress: state.saveReadingProgress,
 }));
+
+vi.mock('../src/history/store', () => ({ rememberReading: state.rememberReading }));
 
 vi.mock('../src/reader/network', async (importOriginal) => {
   const original = await importOriginal<typeof import('../src/reader/network')>();
@@ -260,6 +269,11 @@ describe('ReaderPage integration', () => {
     state.locationState = null;
     state.direction = 'left-right';
     state.autoSnap = false;
+    state.doublePage = false;
+    state.wide = false;
+    state.mediaCallback = null;
+    state.rememberReading.mockReset();
+    state.saveDoublePage.mockReset();
     state.seamlessMode = true;
     state.lazyRange = 2;
     state.barSide = 'bottom';
@@ -301,9 +315,9 @@ describe('ReaderPage integration', () => {
     Object.defineProperty(window, 'matchMedia', {
       configurable: true,
       value: vi.fn((query: string) => ({
-        matches: query.includes('pointer: fine'),
+        get matches() { return query.includes('pointer: fine') || (query.includes('min-width: 720px') && state.wide); },
         media: query,
-        addEventListener: vi.fn(),
+        addEventListener: vi.fn((_name, callback: () => void) => { if (query.includes('min-width: 720px')) state.mediaCallback = callback; }),
         removeEventListener: vi.fn(),
       })),
     });
@@ -320,6 +334,31 @@ describe('ReaderPage integration', () => {
     render(<ReaderPage />);
     assert.ok(screen.getByTestId('reader-loading'));
     assert.equal(state.canvasProps, null);
+  });
+
+  test('double-page controls turn by spreads, respond to width, resume exact progress and record loaded pages', async () => {
+    state.wide = true;
+    state.locationState = { resumePage: 3, historyAlbumId: '1' };
+    render(<ReaderPage />);
+    await flushWork();
+    assert.equal(state.overlayProps?.currentPage, 3);
+    assert.ok(state.rememberReading.mock.calls.length > 0);
+    act(() => (state.overlayProps!.onToggleDoublePage as () => void)());
+    assert.equal(state.canvasProps?.doublePage, true);
+    assert.equal(state.overlayProps?.currentPage, 2);
+    assert.deepEqual(state.saveDoublePage.mock.calls[0], [true]);
+    act(() => (state.overlayProps!.onScrollByInputStep as (step: number) => void)(1));
+    assert.equal(state.overlayProps?.currentPage, 4);
+    act(() => (state.overlayProps!.onScrollByInputStep as (step: number) => void)(-1));
+    assert.equal(state.overlayProps?.currentPage, 2);
+    state.wide = false;
+    act(() => state.mediaCallback?.());
+    assert.equal(state.canvasProps?.doublePage, false);
+    state.wide = true;
+    act(() => state.mediaCallback?.());
+    assert.equal(state.canvasProps?.doublePage, true);
+    act(() => (state.overlayProps!.onToggleDoublePage as () => void)());
+    assert.equal(state.canvasProps?.doublePage, false);
   });
 
   test('handles horizontal controls, clicks, wheel modes, and image residency', async () => {

@@ -11,6 +11,7 @@ import { ComicGrid } from "./ComicGrid";
 import { PageFrame, QueryState } from "./ui";
 import type { AccountState } from "./session";
 import type { FolderEdit, WriteResult } from "./types";
+import { rememberEngagement } from './engagement';
 
 const PAGE_SIZE = 20;
 
@@ -47,7 +48,7 @@ function FavoriteList({ account }: { account: AccountState }) {
     });
     const remove = useMutation({
         mutationFn: (aid: string) => accountApi.toggleFavorite(aid),
-        onSuccess: (result) => { report(result, "已取消收藏"); void refresh(); },
+        onSuccess: (result, aid) => { report(result, "已取消收藏"); if (result.ok) { rememberEngagement(uid, aid, { favorite: result.type === 'add' }); void refresh(); } },
         onError: (error) => setMessage({ text: describeError(error), tone: "error" }),
     });
 

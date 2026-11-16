@@ -15,6 +15,7 @@ ensureBackendPreconnect();
 const queryClient = new QueryClient();
 
 const ReaderPage = lazy(() => import("./reader"));
+const HistoryPage = lazy(() => import("./history"));
 
 createRoot(document.getElementById("root")!).render(
     <StrictMode>
@@ -27,6 +28,7 @@ createRoot(document.getElementById("root")!).render(
                             <Route path="/discover" element={<Root />} />
                             <Route path="/favorites" element={<Root />} />
                             <Route path="/me" element={<Root />} />
+                            <Route path="/history" element={<HistoryPage />} />
                             <Route path="/reader/:albumId" element={<ReaderPage />} />
                         </Routes>
                     </Suspense>

@@ -16,6 +16,9 @@
 /me
   Cache-Control: no-cache, no-store, must-revalidate
 
+/history
+  Cache-Control: no-cache, no-store, must-revalidate
+
 /sw.js
   Cache-Control: no-cache, no-store, must-revalidate
 

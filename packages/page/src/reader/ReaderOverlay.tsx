@@ -4,6 +4,7 @@ import type { ReadingDirection, BarSide } from './reader-store';
 import { getCacheStats, clearAllCache } from '@tiny-client/shared';
 import { getTranslationControlAction } from '../translation/scheduler';
 import { getSeekPageFromKey } from './input';
+import { getSpreadStart } from './layout';
 import {
   createReaderUiIdleController,
   READER_DESKTOP_POINTER_QUERY,
@@ -175,6 +176,8 @@ function BoundaryHint({
 function SettingsPanel({
   direction,
   autoSnap,
+  doublePage,
+  onToggleDoublePage,
   seamlessMode,
   lazyRenderRange,
   barVisible,
@@ -191,6 +194,8 @@ function SettingsPanel({
 }: {
   direction: ReadingDirection;
   autoSnap: boolean;
+  doublePage?: boolean;
+  onToggleDoublePage?: () => void;
   seamlessMode: boolean;
   lazyRenderRange: number;
   barVisible: boolean;
@@ -245,6 +250,11 @@ function SettingsPanel({
         </div>
 
         <SettingSwitch label="自动吸附" checked={autoSnap} onChange={onToggleAutoSnap} />
+
+        {onToggleDoublePage && <div>
+          <SettingSwitch label="双页阅读" checked={doublePage === true} onChange={onToggleDoublePage} />
+          <p className="mt-1 text-xs text-gray-500">横向宽屏并排显示两页，窄屏自动使用单页</p>
+        </div>}
 
         <SettingSwitch label="无缝模式" checked={seamlessMode} onChange={onToggleSeamlessMode} />
 
@@ -322,6 +332,9 @@ export function ReaderOverlay({
   hint,
   boundaryToast,
   autoSnap,
+  doublePage = false,
+  doublePageActive = false,
+  onToggleDoublePage,
   seamlessMode,
   lazyRenderRange,
   barSide,
@@ -367,6 +380,9 @@ export function ReaderOverlay({
   hint: { dir: 'prev' | 'next'; progress: number; chapterName: string } | null;
   boundaryToast: 'prev' | 'next' | null;
   autoSnap: boolean;
+  doublePage?: boolean;
+  doublePageActive?: boolean;
+  onToggleDoublePage?: () => void;
   seamlessMode: boolean;
   lazyRenderRange: number;
   barSide: BarSide;
@@ -464,6 +480,8 @@ export function ReaderOverlay({
   const visibilityChangeRef = useRef(onVisibilityChange);
 
   const activePage = dragging && displayPage !== null ? displayPage : currentPage;
+  const spreadStart = getSpreadStart(activePage, doublePageActive);
+  const pageLabel = `${spreadStart + 1}${doublePageActive && spreadStart + 1 < totalPages ? `–${Math.min(spreadStart + 2, totalPages)}` : ''}`;
   const activePct = totalPages > 1 ? (activePage / (totalPages - 1)) * 100 : 0;
   const interactionActive = showChapterDrawer || showSettings || dragging || externalDialogOpen;
 
@@ -584,6 +602,7 @@ export function ReaderOverlay({
       key: event.key,
       currentPage,
       totalPages,
+      arrowStep: doublePageActive ? 2 : 1,
     });
     if (page === null) return;
     event.preventDefault();
@@ -592,7 +611,7 @@ export function ReaderOverlay({
     setDragging(true);
     onSeekPage?.(page);
     showTooltipTemporarily();
-  }, [currentPage, onSeekPage, showTooltipTemporarily, totalPages]);
+  }, [currentPage, doublePageActive, onSeekPage, showTooltipTemporarily, totalPages]);
 
   useEffect(() => {
     return () => {
@@ -646,6 +665,7 @@ export function ReaderOverlay({
           <SettingsPanel
             direction={direction} autoSnap={autoSnap} seamlessMode={seamlessMode} lazyRenderRange={lazyRenderRange}
             barVisible={barVisible}
+            doublePage={doublePage} onToggleDoublePage={onToggleDoublePage}
             onToggleDirection={onToggleDirection} onToggleAutoSnap={onToggleAutoSnap}
             onToggleSeamlessMode={onToggleSeamlessMode}
             onChangeLazyRenderRange={onChangeLazyRenderRange}
@@ -709,7 +729,7 @@ export function ReaderOverlay({
       {/* Floating page indicator — top-center during drag */}
       <div className={`absolute top-1/4 left-1/2 -translate-x-1/2 z-50 pointer-events-none transition-all duration-150 ${dragging ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
         <div className="bg-gray-900/85 backdrop-blur-md text-white text-3xl font-bold px-5 py-3 rounded-2xl shadow-2xl whitespace-nowrap ring-1 ring-white/10">
-          {activePage + 1}<span className="text-gray-400 text-xl font-normal mx-1">/</span>{totalPages}
+          {pageLabel}<span className="text-gray-400 text-xl font-normal mx-1">/</span>{totalPages}
         </div>
       </div>
 
@@ -724,7 +744,7 @@ export function ReaderOverlay({
             <div className="flex min-h-10 items-center gap-2 px-3">
               <div className="flex items-center gap-1 shrink-0">
                 <button type="button" onClick={onPrevChapter} disabled={!hasPrevChapter} className="flex h-9 w-9 items-center justify-center text-white/70 hover:text-white disabled:cursor-default disabled:opacity-30" title="上一章" aria-label="上一章"><ChevronLeft size={16} /></button>
-                <span className="text-white/60 text-xs tabular-nums min-w-[5ch] text-center">{activePage + 1}/{totalPages}</span>
+                <span className="text-white/60 text-xs tabular-nums min-w-[5ch] text-center">{pageLabel}/{totalPages}</span>
                 <button type="button" onClick={onNextChapter} disabled={!hasNextChapter} className="flex h-9 w-9 items-center justify-center text-white/70 hover:text-white disabled:cursor-default disabled:opacity-30" title="下一章" aria-label="下一章"><ChevronRight size={16} /></button>
               </div>
               <div
@@ -742,7 +762,7 @@ export function ReaderOverlay({
                 aria-valuemin={1}
                 aria-valuemax={Math.max(totalPages, 1)}
                 aria-valuenow={activePage + 1}
-                aria-valuetext={`第 ${activePage + 1} 页，共 ${totalPages} 页`}
+                aria-valuetext={`第 ${pageLabel} 页，共 ${totalPages} 页`}
               >
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-700/50">
                     <div
@@ -773,7 +793,7 @@ export function ReaderOverlay({
           <div className="flex flex-col items-center gap-2 py-4 h-full" style={{ paddingTop: '3.5rem' }}>
             <div className="flex flex-col-reverse items-center gap-0.5">
               <button type="button" onClick={onNextChapter} disabled={!hasNextChapter} className="flex h-9 w-9 items-center justify-center text-white/70 hover:text-white disabled:cursor-default disabled:opacity-30" title="下一章" aria-label="下一章"><ChevronDown size={14} /></button>
-              <span className="text-white/60 text-xs tabular-nums" style={{ writingMode: 'vertical-rl' }}>{activePage + 1}/{totalPages}</span>
+              <span className="text-white/60 text-xs tabular-nums" style={{ writingMode: 'vertical-rl' }}>{pageLabel}/{totalPages}</span>
               <button type="button" onClick={onPrevChapter} disabled={!hasPrevChapter} className="flex h-9 w-9 items-center justify-center text-white/70 hover:text-white disabled:cursor-default disabled:opacity-30" title="上一章" aria-label="上一章"><ChevronUp size={14} /></button>
             </div>
             <div
@@ -792,7 +812,7 @@ export function ReaderOverlay({
               aria-valuemin={1}
               aria-valuemax={Math.max(totalPages, 1)}
               aria-valuenow={activePage + 1}
-              aria-valuetext={`第 ${activePage + 1} 页，共 ${totalPages} 页`}
+              aria-valuetext={`第 ${pageLabel} 页，共 ${totalPages} 页`}
             >
               <div className="w-2 mx-1.5 h-full bg-gray-700/50 rounded-full overflow-hidden">
                 <div

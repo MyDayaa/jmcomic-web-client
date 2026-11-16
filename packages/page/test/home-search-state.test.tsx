@@ -22,6 +22,15 @@ function createWrapper(initialEntry: string) {
 }
 
 describe('useSearchState', () => {
+  test('history navigation restores the query and every visible search filter', () => {
+    apiMocks.search.mockResolvedValue({ search_query: 'restored', total: '0', content: [] });
+    const { result } = renderHook(() => useSearchState(vi.fn()), { wrapper: createWrapper('/') });
+    act(() => result.current.pushSearch('+Blue +Archive -bad', '3', 'mv', 'w', 1));
+    assert.equal(result.current.query, '+Blue +Archive -bad');
+    assert.equal(result.current.category, '3');
+    assert.equal(result.current.orderBy, 'mv');
+    assert.equal(result.current.timeFilter, 'w');
+  });
   beforeEach(() => {
     apiMocks.search.mockReset();
   });

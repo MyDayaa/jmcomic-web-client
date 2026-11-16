@@ -5,6 +5,7 @@ import {
   getReaderAnchorRatio,
   getReaderAnchorScrollPosition,
   getReaderInteractionPolicy,
+  getSpreadStart,
 } from './layout';
 import { TranslationSettingsDialog } from '../translation/TranslationSettingsDialog';
 import { useReaderTranslation, type TranslationTask } from '../translation/useReaderTranslation';
@@ -13,6 +14,8 @@ import type { ReadingDirection } from './reader-store';
 import {
   getReadingDirection,
   saveReadingDirection,
+  getDoublePage,
+  saveDoublePage,
   getReadingProgress,
   getLatestChapterProgress,
   getAutoSnap,
@@ -25,6 +28,7 @@ import {
   saveReadingProgress,
 } from './reader-store';
 import pLimit from 'p-limit';
+import { rememberReading } from '../history/store';
 import { getProcessedPhotoImage } from '@tiny-client/shared';
 import {
   accumulateBoundaryGesture,
@@ -141,6 +145,18 @@ export default function ReaderPage() {
   });
 
   const [direction, setDirection] = useState<ReadingDirection>(getReadingDirection);
+  const [doublePage, setDoublePage] = useState(getDoublePage);
+  const [wideReader, setWideReader] = useState(() => window.matchMedia('(min-width: 720px)').matches);
+  const doublePageActive = doublePage && wideReader && direction === 'left-right';
+  const doublePageRef = useRef(doublePageActive);
+  doublePageRef.current = doublePageActive;
+  const initialResumeRef = useRef<{ resumePage?: number; historyAlbumId?: string }>(location.state ?? {});
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 720px)');
+    const update = () => setWideReader(media.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
   const [autoSnap, setAutoSnap] = useState(getAutoSnap);
   const [seamlessMode, setSeamlessMode] = useState(getSeamlessMode);
   const [lazyRenderRange, setLazyRenderRange] = useState(getLazyRenderRange);
@@ -232,11 +248,11 @@ export default function ReaderPage() {
   seamlessModeRef.current = seamlessMode;
   const albumIdRef = useRef(albumId);
   albumIdRef.current = albumId;
-  const seriesRootRef = useRef<string>(albumId ?? '');
+  const seriesRootRef = useRef<string>(initialResumeRef.current.historyAlbumId ?? albumId ?? '');
   // Stable canonical series id for progress keys: prefer album.seriesID once known.
   useEffect(() => {
     const root = album?.seriesID;
-    if (root && root !== seriesRootRef.current) seriesRootRef.current = root;
+    if (root && root !== '0' && root !== seriesRootRef.current) seriesRootRef.current = root;
   }, [album]);
   const chapterIdRef = useRef(currentChapterId);
   chapterIdRef.current = currentChapterId;
@@ -312,6 +328,7 @@ export default function ReaderPage() {
   // ─── navigation ──────────────────────────────────────────────────────────────
 
   const setReaderPage = useCallback((page: number) => {
+    page = getSpreadStart(page, doublePageRef.current);
     currentPageRef.current = page;
     setCurrentPage(page);
   }, []);
@@ -319,7 +336,7 @@ export default function ReaderPage() {
   const scrollToPage = useCallback((index: number, behavior: ScrollBehavior = 'instant') => {
     const el = containerRef.current;
     if (!el) return;
-    const child = el.children[index] as HTMLElement | undefined;
+    const child = el.children[getSpreadStart(index, doublePageRef.current)] as HTMLElement | undefined;
     if (!child) return;
     if (isRTLRef.current) {
       el.scrollTo({ left: child.offsetLeft, behavior });
@@ -327,6 +344,12 @@ export default function ReaderPage() {
       el.scrollTo({ top: child.offsetTop, behavior });
     }
   }, []);
+
+  useLayoutEffect(() => {
+    setReaderPage(currentPageRef.current);
+    scrollToPage(currentPageRef.current, 'instant');
+    pageOffsetCacheRef.current.invalidate();
+  }, [doublePageActive, scrollToPage, setReaderPage]);
 
   const getSmoothScrollBehavior = useCallback(() => getAnimatedScrollBehavior(
     window.matchMedia('(prefers-reduced-motion: reduce)').matches,
@@ -401,6 +424,7 @@ export default function ReaderPage() {
   }, []);
 
   const setProgrammaticPageTarget = useCallback((page: number) => {
+    page = getSpreadStart(page, doublePageRef.current);
     clearProgrammaticPageTarget();
     programmaticPageTargetRef.current = page;
     programmaticPageTargetTimerRef.current = window.setTimeout(
@@ -949,7 +973,7 @@ export default function ReaderPage() {
     releaseLandingAnchor();
 
     if (isRTLRef.current && programmaticPageTargetRef.current !== null) {
-      const nextPage = currentPageRef.current + step;
+      const nextPage = currentPageRef.current + step * (doublePageRef.current ? 2 : 1);
       if (nextPage < 0 || nextPage >= imagesCountRef.current) {
         clearProgrammaticPageTarget();
         const direction = step > 0 ? 'next' : 'prev';
@@ -972,7 +996,7 @@ export default function ReaderPage() {
     if (boundaryDirectionRef.current !== null) cancelBoundaryHint();
 
     if (isRTLRef.current) {
-      const target = Math.max(0, Math.min(imagesCountRef.current - 1, currentPageRef.current + step));
+      const target = getSpreadStart(Math.max(0, Math.min(imagesCountRef.current - 1, currentPageRef.current + step * (doublePageRef.current ? 2 : 1))), doublePageRef.current);
       if (target !== currentPageRef.current) {
         setProgrammaticPageTarget(target);
         setReaderPage(target);
@@ -1041,9 +1065,24 @@ export default function ReaderPage() {
     });
   }, [resetZoom]);
 
+  const toggleDoublePage = useCallback(() => {
+    resetZoom();
+    releaseLandingAnchor();
+    clearProgrammaticPageTarget();
+    const next = !doublePage;
+    setDoublePage(next);
+    saveDoublePage(next);
+    if (next) {
+      setDirection('left-right'); saveReadingDirection('left-right');
+      setSeamlessMode(false); saveSeamlessMode(false);
+      setAutoSnap(true); saveAutoSnap(true);
+    }
+  }, [clearProgrammaticPageTarget, doublePage, releaseLandingAnchor, resetZoom]);
+
   const toggleSeamlessMode = useCallback(() => {
     resetZoom();
     pendingLayoutAnchorRef.current = captureLayoutAnchor(autoSnapRef.current);
+    setDoublePage(false); saveDoublePage(false);
     setSeamlessMode((prev) => {
       const next = !prev;
       saveSeamlessMode(next);
@@ -1201,6 +1240,12 @@ export default function ReaderPage() {
       targetPage = Math.max(0, Math.min(images.length - 1, targetPage));
     }
 
+    const resume = initialResumeRef.current.resumePage;
+    if (Number.isInteger(resume) && currentChapterId === mountAlbumIdRef.current) {
+      targetPage = Math.max(0, Math.min(images.length - 1, resume!));
+      initialResumeRef.current.resumePage = undefined;
+    }
+    targetPage = getSpreadStart(targetPage, doublePageRef.current);
     pending.resolvedPage = targetPage;
     visiblePagesRef.current = new Set([targetPage]);
     setReaderPage(targetPage);
@@ -1283,7 +1328,7 @@ export default function ReaderPage() {
     const container = containerRef.current;
     pageOffsetCacheRef.current.invalidate();
     if (container) updateVisiblePages(container);
-  }, [direction, pageAspectRatios, seamlessMode, updateVisiblePages]);
+  }, [direction, doublePageActive, pageAspectRatios, seamlessMode, updateVisiblePages]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -1360,7 +1405,7 @@ export default function ReaderPage() {
       el.removeEventListener('scroll', onScroll);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [photo, direction, albumId, currentChapterId, currentChapterIndex, images.length, autoSnap, seamlessMode, getSmoothScrollBehavior, updateVisiblePages]);
+  }, [photo, direction, doublePageActive, albumId, currentChapterId, currentChapterIndex, images.length, autoSnap, seamlessMode, getSmoothScrollBehavior, updateVisiblePages]);
 
   useEffect(() => {
     if (!currentChapterId || images.length === 0) return;
@@ -1374,6 +1419,16 @@ export default function ReaderPage() {
       updatedAt: Date.now(),
     });
   }, [currentChapterId, currentChapterIndex, currentPage, images.length]);
+
+  useEffect(() => {
+    if (!photo || photo.id !== currentChapterId || !blobMap.has(currentPage)) return;
+    rememberReading({
+      albumId: seriesRootRef.current || albumId || currentChapterId,
+      chapterId: currentChapterId, title: album?.name ?? photo.name,
+      chapterName: sortedChapters.length > 1 ? sortedChapters[currentChapterIndex]?.name ?? '' : '',
+      page: currentPage, totalPages: images.length,
+    });
+  }, [album, albumId, blobMap, currentChapterId, currentChapterIndex, currentPage, images.length, photo, sortedChapters]);
 
   // ─── wheel / touchpad scrolling ────────────────────────────────────────────
 
@@ -1697,7 +1752,7 @@ export default function ReaderPage() {
     ...barPad,
   };
 
-  const imgCls = seamlessMode
+  const imgCls = doublePageActive ? 'block h-full w-full object-contain' : seamlessMode
     ? 'block h-full w-full object-contain'
     : isRTL
       ? 'block w-full h-auto max-h-full object-contain'
@@ -1741,6 +1796,7 @@ export default function ReaderPage() {
         direction={direction}
         seamlessMode={seamlessMode}
         snapEnabled={readerPolicy.snapEnabled}
+        doublePage={doublePageActive}
         imgCls={imgCls}
         chapterId={photo?.id ?? currentChapterId}
         scrollDivStyle={scrollDivStyle}
@@ -1778,6 +1834,9 @@ export default function ReaderPage() {
         hint={hint}
         boundaryToast={boundaryToast}
         autoSnap={autoSnap}
+        doublePage={doublePage}
+        doublePageActive={doublePageActive}
+        onToggleDoublePage={toggleDoublePage}
         seamlessMode={seamlessMode}
         lazyRenderRange={lazyRenderRange}
         barSide={barSide}

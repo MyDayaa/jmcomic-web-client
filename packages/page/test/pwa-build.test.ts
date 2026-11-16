@@ -210,7 +210,7 @@ describe('PWA build output', () => {
     assert.match(headers, /\/release\.json\s+Cache-Control: no-cache, no-store, must-revalidate/);
     assert.match(headers, /^\/\s+Cache-Control: no-cache, no-store, must-revalidate/m);
     assert.match(headers, /\/reader\/\*\s+Cache-Control: no-cache, no-store, must-revalidate/);
-    for (const route of ['discover', 'favorites', 'me']) {
+    for (const route of ['discover', 'favorites', 'me', 'history']) {
       assert.match(headers, new RegExp(`^/${route}\\s+Cache-Control: no-cache, no-store, must-revalidate`, 'm'));
     }
     assert.match(headers, /\/assets-v3\/\*\s+Cache-Control: public, max-age=0, must-revalidate/);

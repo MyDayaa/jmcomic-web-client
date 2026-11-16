@@ -1,6 +1,7 @@
+import { MemoryRouter } from 'react-router-dom';
 import assert from 'node:assert/strict';
 import type { ChangeEventHandler, FormEventHandler, ReactNode } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render as renderOriginal, screen } from '@testing-library/react';
 import { beforeEach, describe, test, vi } from 'vitest';
 
 const state = vi.hoisted(() => ({
@@ -48,6 +49,7 @@ vi.mock('../src/home/CoverImage', () => ({ CoverImage: ({ albumId }: { albumId: 
 vi.mock('../src/theme/ThemeControls', () => ({ ThemePopover: () => <div data-testid="theme-popover" /> }));
 
 import Home from '../src/home';
+const render = (ui: ReactNode) => renderOriginal(ui, { wrapper: MemoryRouter });
 
 function makeSearch(overrides: Record<string, unknown> = {}) {
   return {

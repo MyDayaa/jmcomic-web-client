@@ -9,6 +9,7 @@ const comic = (id: string, name: string) => ({ id, name, author: 'Fixture', imag
 /** Mocks the Worker. Returns the request log so tests can check what the page sent. */
 async function mockBackend(page: Page, options: { favoriteStatus?: number } = {}) {
     const requests: { path: string; method: string; auth: string | null; body: unknown }[] = [];
+    let favorite = false;
     await page.route('http://backend.test/**', async (route) => {
         const request = route.request();
         const path = new URL(request.url()).pathname;
@@ -29,6 +30,11 @@ async function mockBackend(page: Page, options: { favoriteStatus?: number } = {}
         if (path === '/api/mobile/account/favorite' && options.favoriteStatus) {
             return route.fulfill({ status: options.favoriteStatus, headers, json: { error: { code: 'SESSION_EXPIRED', message: 'Session expired' } } });
         }
+        if (path === '/api/mobile/account/favorite') {
+            favorite = !favorite;
+            return route.fulfill({ headers, json: { ok: true, message: favorite ? '已加入收藏' : '已取消收藏', type: favorite ? 'add' : 'del' } });
+        }
+        if (path === '/api/mobile/account/like') return route.fulfill({ headers, json: { ok: true, message: '已点赞' } });
         if (path in routes) return route.fulfill({ headers, json: routes[path] });
         return route.fulfill({ status: 404, headers, json: { error: { code: 'NOT_FOUND', message: path } } });
     });
@@ -67,7 +73,7 @@ test.describe('mobile viewport', () => {
 
         await page.getByRole('link', { name: '首页' }).click();
         await page.getByText('Promoted fixture').click();
-        await page.getByRole('button', { name: /收藏 \/ 取消收藏/ }).click();
+        await page.getByRole('button', { name: '收藏', exact: true }).click();
         const login = page.getByRole('dialog', { name: '登录账号' });
         await expect(login).toBeVisible();
         await login.getByLabel('用户名').fill('reader');
@@ -75,6 +81,14 @@ test.describe('mobile viewport', () => {
         await login.getByRole('button', { name: '登录' }).click();
         await expect(login).toHaveCount(0);
         await expect(page.getByText('已加入收藏')).toBeVisible();
+        const collected = page.getByRole('button', { name: '取消收藏', exact: true });
+        await expect(collected).toHaveAttribute('aria-pressed', 'true');
+        await expect(collected.locator('svg')).toHaveAttribute('fill', 'currentColor');
+        await collected.click();
+        await expect(page.getByRole('button', { name: '收藏', exact: true })).toHaveAttribute('aria-pressed', 'false');
+        await page.getByRole('button', { name: '点赞', exact: true }).click();
+        await expect(page.getByRole('button', { name: '已点赞', exact: true })).toHaveAttribute('aria-pressed', 'true');
+        await expect(page.getByRole('button', { name: '已点赞', exact: true }).locator('svg')).toHaveAttribute('fill', 'currentColor');
 
         const favorite = requests.find((request) => request.path === '/api/mobile/account/favorite');
         expect(favorite?.auth).toBe('Bearer v1.sealed');
@@ -94,7 +108,7 @@ test.describe('mobile viewport', () => {
             { session: 'v1.sealed', expiresAt: Date.now() + 3_600_000, member });
         await page.reload();
         await page.getByText('Promoted fixture').click();
-        await page.getByRole('button', { name: /收藏 \/ 取消收藏/ }).click();
+        await page.getByRole('button', { name: '收藏', exact: true }).click();
         await expect(page.getByText('登录已过期，请重新登录')).toBeVisible();
         // Close the album dialog by clicking its backdrop.
         await page.mouse.click(5, 5);

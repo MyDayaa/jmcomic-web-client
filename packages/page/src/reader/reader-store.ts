@@ -6,6 +6,7 @@ export type BarSide = 'left' | 'right' | 'bottom';
 const PROGRESS_PREFIX = 'reading-progress:';
 const DIRECTION_KEY = 'reading-direction';
 const AUTO_SNAP_KEY = 'reading-auto-snap';
+const DOUBLE_PAGE_KEY = 'reading-double-page';
 const BAR_SIDE_KEY = 'reading-bar-side';
 const SEAMLESS_MODE_KEY = 'reading-seamless-mode';
 const LAZY_RENDER_RANGE_KEY = 'reading-lazy-render-range';
@@ -116,6 +117,13 @@ export function getReadingDirection(): ReadingDirection {
   const raw = localStorage.getItem(DIRECTION_KEY);
   if (raw === 'left-right' || raw === 'top-down') return raw;
   return 'left-right';
+}
+
+export function saveDoublePage(enabled: boolean) {
+  try { localStorage.setItem(DOUBLE_PAGE_KEY, enabled ? '1' : '0'); } catch { /* Keep the current reader usable. */ }
+}
+export function getDoublePage(): boolean {
+  try { return localStorage.getItem(DOUBLE_PAGE_KEY) === '1'; } catch { return false; }
 }
 
 export function saveAutoSnap(enabled: boolean) {

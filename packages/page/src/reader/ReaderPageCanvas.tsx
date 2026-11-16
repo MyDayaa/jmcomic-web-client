@@ -15,6 +15,7 @@ type ReaderPageCanvasProps = {
   direction: ReadingDirection;
   seamlessMode: boolean;
   snapEnabled: boolean;
+  doublePage?: boolean;
   imgCls: string;
   chapterId: string;
   scrollDivStyle: React.CSSProperties;
@@ -36,6 +37,7 @@ export function ReaderPageCanvas({
   direction,
   seamlessMode,
   snapEnabled,
+  doublePage = false,
   imgCls,
   chapterId,
   scrollDivStyle,
@@ -53,6 +55,7 @@ export function ReaderPageCanvas({
       style={scrollDivStyle}
       onClick={onClick}
       data-reader-container=""
+      data-reader-layout={doublePage ? 'double' : 'single'}
       role="region"
       aria-label="漫画阅读区域"
     >
@@ -69,6 +72,9 @@ export function ReaderPageCanvas({
               seamlessMode,
               aspectRatio: pageAspectRatios.get(i),
               snapEnabled,
+              doublePage,
+              pageIndex: i,
+              lastPage: i === images.length - 1,
             })}
           >
             {url ? (

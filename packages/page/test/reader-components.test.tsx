@@ -116,6 +116,20 @@ function overlayProps(overrides: Partial<OverlayProps> = {}): OverlayProps {
 }
 
 describe('reader overlay controls', () => {
+  test('double-page settings and seek controls display and advance complete spreads', () => {
+    const onToggleDoublePage = vi.fn();
+    const props = overlayProps({ currentPage: 0, totalPages: 5 });
+    render(<ReaderOverlay {...props} doublePage doublePageActive onToggleDoublePage={onToggleDoublePage} />);
+    const slider = screen.getByRole('slider', { name: '阅读进度' });
+    assert.equal(slider.getAttribute('aria-valuetext'), '第 1–2 页，共 5 页');
+    fireEvent.keyDown(slider, { key: 'ArrowRight' });
+    assert.deepEqual(props.onSeekPage.mock.calls[0], [2]);
+    fireEvent.keyDown(slider, { key: 'End' });
+    assert.equal(slider.getAttribute('aria-valuetext'), '第 5 页，共 5 页');
+    fireEvent.click(screen.getByRole('button', { name: '打开阅读设置' }));
+    fireEvent.click(screen.getByRole('switch', { name: '双页阅读' }));
+    assert.equal(onToggleDoublePage.mock.calls.length, 1);
+  });
   beforeEach(() => {
     vi.useFakeTimers();
     mockDesktopPointer(false);
@@ -456,6 +470,21 @@ describe('reader overlay controls', () => {
 });
 
 describe('reader canvas and transition views', () => {
+  test('renders both pages of a spread without duplicating the current page translation', () => {
+    const { container } = render(<ReaderPageCanvas
+      containerRef={{ current: null }} images={[{ name: 'a', url: 'a' }, { name: 'b', url: 'b' }, { name: 'c', url: 'c' }]}
+      blobMap={new Map([[0, 'blob:a'], [1, 'blob:b']])} loadingPages={new Set()} failedPages={new Set()}
+      pageAspectRatios={new Map()} direction="left-right" seamlessMode={false} snapEnabled doublePage imgCls="page"
+      chapterId="1" scrollDivStyle={{}} currentPage={0} translationRecord={{ status: 'ready' } as never} translationVisible
+      onClick={vi.fn()} onImageLoad={vi.fn()} onRetryPage={vi.fn()}
+    />);
+    assert.equal(container.firstElementChild?.getAttribute('data-reader-layout'), 'double');
+    const pages = container.querySelectorAll<HTMLElement>('[data-reader-page]');
+    assert.equal(pages[0].style.width, '50%');
+    assert.equal(pages[1].style.scrollSnapAlign, '');
+    assert.equal(pages[2].style.marginRight, '50%');
+    assert.equal(pages[1].querySelector('img')?.getAttribute('data-has-record'), 'false');
+  });
   test('renders resident, loading, idle, and failed pages', () => {
     const containerRef = { current: null };
     const onClick = vi.fn();

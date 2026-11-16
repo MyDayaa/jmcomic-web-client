@@ -1,6 +1,10 @@
 import type { CSSProperties } from 'react';
 import type { ReadingDirection } from './reader-store';
 
+export function getSpreadStart(page: number, doublePage: boolean) {
+  return doublePage ? Math.floor(page / 2) * 2 : page;
+}
+
 export function getReaderAnchorRatio(viewportCenter: number, pageStart: number, pageSize: number) {
   return Math.max(0, Math.min(1, (viewportCenter - pageStart) / Math.max(pageSize, 1)));
 }
@@ -42,12 +46,27 @@ export function getReaderPageStyle({
   seamlessMode,
   aspectRatio,
   snapEnabled,
+  doublePage = false,
+  pageIndex = 0,
+  lastPage = false,
 }: {
   direction: ReadingDirection;
   seamlessMode: boolean;
   aspectRatio?: number;
   snapEnabled: boolean;
+  doublePage?: boolean;
+  pageIndex?: number;
+  lastPage?: boolean;
 }): CSSProperties {
+  if (doublePage && direction === 'left-right') {
+    return {
+      flex: '0 0 50%', width: '50%', height: '100%',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      scrollSnapAlign: snapEnabled && pageIndex % 2 === 0 ? 'start' : undefined,
+      scrollSnapStop: snapEnabled && pageIndex % 2 === 0 ? 'always' : undefined,
+      marginRight: lastPage && pageIndex % 2 === 0 ? '50%' : undefined,
+    };
+  }
   const snapStyle: CSSProperties = {
     scrollSnapAlign: snapEnabled ? 'start' : undefined,
     scrollSnapStop: snapEnabled ? 'always' : undefined,

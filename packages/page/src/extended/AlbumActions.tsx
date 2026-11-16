@@ -7,7 +7,8 @@ import { SelectField, TextInput } from "../ui/fields";
 import { Pager } from "../ui/Pager";
 import { accountApi, describeError, mobileApi } from "./api";
 import { htmlToText } from "./text";
-import { useAccount } from "./session";
+import { loadAccount, useAccount } from "./session";
+import { rememberEngagement, useEngagement } from './engagement';
 import { useExtendedShell } from "./shell";
 import type { MobileComment, WriteResult } from "./types";
 
@@ -26,6 +27,7 @@ export function AlbumActions({ albumId }: { albumId: string }) {
     const queryClient = useQueryClient();
     const write = useWrite();
     const [folder, setFolder] = useState("");
+    const engagement = useEngagement(account?.member.uid ?? '', albumId);
     const folders = useQuery({
         queryKey: ["account", account?.member.uid, "favorites", 1, "0", "mr"],
         queryFn: ({ signal }) => accountApi.favorites(1, "0", "mr", signal),
@@ -33,16 +35,25 @@ export function AlbumActions({ albumId }: { albumId: string }) {
         staleTime: 60_000,
     });
     const invalidateFavorites = () => queryClient.invalidateQueries({ queryKey: ["account", account?.member.uid, "favorites"] });
+    const favorite = engagement.favorite ?? folders.data?.items.some(item => item.id === albumId) ?? false;
+    const liked = engagement.liked;
 
     const toggle = useMutation({
-        mutationFn: () => accountApi.toggleFavorite(albumId),
-        onSuccess: (result) => {
+        mutationFn: async () => { const uid = loadAccount()?.member.uid; return { result: await accountApi.toggleFavorite(albumId), uid }; },
+        onSuccess: ({ result, uid }) => {
             write.report(result, result.type === "add" ? "已加入收藏" : "已取消收藏");
-            void invalidateFavorites();
+            if (result.ok) {
+                if (uid) rememberEngagement(uid, albumId, { favorite: result.type === 'add' ? true : result.type === 'del' || result.type === 'remove' ? false : !favorite });
+                void invalidateFavorites();
+            }
         },
         onError: write.fail,
     });
-    const like = useMutation({ mutationFn: () => accountApi.like(albumId), onSuccess: (result) => write.report(result, "已点赞"), onError: write.fail });
+    const like = useMutation({
+        mutationFn: async () => { const uid = loadAccount()?.member.uid; return { result: await accountApi.like(albumId), uid }; },
+        onSuccess: ({ result, uid }) => { write.report(result, "已点赞"); if (result.ok && uid) rememberEngagement(uid, albumId, { liked: true }); },
+        onError: write.fail,
+    });
     const move = useMutation({
         mutationFn: (folderId: string) => accountApi.editFolder({ type: "move", folderId, aid: albumId }),
         onSuccess: (result) => { write.report(result, "已移动"); void invalidateFavorites(); },
@@ -54,11 +65,11 @@ export function AlbumActions({ albumId }: { albumId: string }) {
     return (
         <div className="space-y-3 rounded-lg border border-border p-3">
             <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="secondary" isDisabled={busy} onPress={() => requireLogin(() => toggle.mutate())}>
-                    <Star size={14} />收藏 / 取消收藏
+                <Button size="sm" variant={favorite ? 'primary' : 'secondary'} aria-pressed={favorite} aria-label={favorite ? '取消收藏' : '收藏'} isDisabled={busy} onPress={() => requireLogin(() => toggle.mutate())}>
+                    <Star size={14} fill={favorite ? 'currentColor' : 'none'} />{favorite ? '已收藏' : '收藏'}
                 </Button>
-                <Button size="sm" variant="secondary" isDisabled={busy} onPress={() => requireLogin(() => like.mutate())}>
-                    <Heart size={14} />点赞
+                <Button size="sm" variant={liked ? 'primary' : 'secondary'} aria-pressed={liked} aria-label={liked ? '已点赞' : '点赞'} isDisabled={busy || liked} onPress={() => requireLogin(() => like.mutate())}>
+                    <Heart size={14} fill={liked ? 'currentColor' : 'none'} />{liked ? '已点赞' : '点赞'}
                 </Button>
             </div>
             {account && (folders.data?.folders.length ?? 0) > 0 && (

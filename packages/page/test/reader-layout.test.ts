@@ -5,9 +5,21 @@ import {
   getReaderAnchorScrollPosition,
   getReaderInteractionPolicy,
   getReaderPageStyle,
+  getSpreadStart,
 } from '../src/reader/layout';
 
 describe('reader layout modes', () => {
+  it('pairs horizontal pages and pads an odd last page to a complete spread', () => {
+    const style = (pageIndex: number, lastPage: boolean, snapEnabled = true) => getReaderPageStyle({ direction: 'left-right', seamlessMode: false, doublePage: true, pageIndex, lastPage, snapEnabled });
+    assert.equal(style(0, false).flex, '0 0 50%');
+    assert.equal(style(0, false).scrollSnapAlign, 'start');
+    assert.equal(style(1, false).scrollSnapAlign, undefined);
+    assert.equal(style(4, true).marginRight, '50%');
+    assert.equal(style(5, true).marginRight, undefined);
+    assert.equal(style(0, false, false).scrollSnapStop, undefined);
+    assert.equal(getSpreadStart(5, true), 4);
+    assert.equal(getSpreadStart(5, false), 5);
+  });
   it('keeps seamless mode and auto snap independent in all four combinations', () => {
     assert.deepEqual(
       getReaderInteractionPolicy({ autoSnap: false, seamlessMode: false, isZoomed: false }),

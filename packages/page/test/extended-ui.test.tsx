@@ -201,11 +201,52 @@ describe('extended shell', () => {
 });
 
 describe('album account actions', () => {
+  test('buttons reflect confirmed collection and likes, and preserve their state on refusals', async () => {
+    signIn();
+    overrides['/account/favorite'] = () => ({ ok: false, message: 'refused' });
+    overrides['/account/like'] = () => ({ ok: false, message: 'refused like' });
+    renderApp('/?q=x');
+    fireEvent.click(await screen.findByRole('button', { name: '收藏', exact: true }));
+    assert.ok(await screen.findByText('refused'));
+    assert.equal(screen.getByRole('button', { name: '收藏', exact: true }).getAttribute('aria-pressed'), 'false');
+    fireEvent.click(screen.getByRole('button', { name: '点赞', exact: true }));
+    assert.ok(await screen.findByText('refused like'));
+    assert.equal(screen.getByRole('button', { name: '点赞', exact: true }).getAttribute('aria-pressed'), 'false');
+    overrides['/account/favorite'] = defaults;
+    fireEvent.click(screen.getByRole('button', { name: '收藏', exact: true }));
+    assert.equal((await screen.findByRole('button', { name: '取消收藏', exact: true })).getAttribute('aria-pressed'), 'true');
+    overrides['/account/favorite'] = () => ({ ok: true, message: '', type: 'remove' });
+    fireEvent.click(screen.getByRole('button', { name: '取消收藏', exact: true }));
+    await waitFor(() => assert.equal(screen.getByRole('button', { name: '收藏', exact: true }).getAttribute('aria-pressed'), 'false'));
+  });
+
+  test('opening account list cards initializes known favorite and like flags without guessing unknown flags', async () => {
+    const items = [
+      { ...comic('11', 'Known favorite'), favorite: true },
+      { ...comic('12', 'Known like'), liked: true },
+      { ...comic('13', 'Known unselected'), favorite: false, liked: false },
+      comic('14', 'Unknown'),
+    ];
+    overrides['/promote'] = () => [{ id: '26', title: '热门推荐', type: 'promote', filterValue: '26', items }];
+    renderApp('/');
+    fireEvent.click(await screen.findByText('Known favorite'));
+    assert.equal(localStorage.getItem('jm-album-state:v1:42'), null);
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'close album' }));
+    act(() => signIn());
+    for (const name of ['Known favorite', 'Known like', 'Known unselected', 'Unknown']) {
+      fireEvent.click(screen.getByText(name));
+      const dialog = screen.getByRole('dialog');
+      if (name === 'Known favorite') assert.equal(within(dialog).getByRole('button', { name: '取消收藏' }).getAttribute('aria-pressed'), 'true');
+      if (name === 'Known like') assert.equal(within(dialog).getByRole('button', { name: '已点赞' }).getAttribute('aria-pressed'), 'true');
+      fireEvent.click(within(dialog).getByRole('button', { name: 'close album' }));
+    }
+  });
+
   test('like, move to a folder and report refusals and uncertain writes', async () => {
     signIn();
     renderApp('/?q=x');
     fireEvent.click(await screen.findByRole('button', { name: '点赞' }));
-    assert.ok(await screen.findByText('已点赞'));
+    assert.equal((await screen.findByRole('button', { name: '已点赞' })).getAttribute('aria-pressed'), 'true');
 
     await choose('目标收藏夹', 'Later');
     overrides['/account/favorite-folder'] = () => ({ ok: false, message: '已在此收藏夹' });
@@ -214,10 +255,10 @@ describe('album account actions', () => {
     assert.deepEqual(last('/account/favorite-folder').body, { type: 'move', folderId: '5', aid: '77' });
 
     overrides['/account/favorite'] = () => new Response(JSON.stringify({ error: { code: 'WRITE_UNCERTAIN', message: 'unknown' } }), { status: 502 });
-    fireEvent.click(screen.getByRole('button', { name: /收藏 \/ 取消收藏/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^(收藏|取消收藏)$/ }));
     assert.ok(await screen.findByText('操作结果未知，请刷新确认后再试'));
     overrides['/account/favorite'] = () => ({ ok: true, message: '', type: 'del' });
-    fireEvent.click(screen.getByRole('button', { name: /收藏 \/ 取消收藏/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^(收藏|取消收藏)$/ }));
     assert.ok(await screen.findByText('已取消收藏'));
   });
 

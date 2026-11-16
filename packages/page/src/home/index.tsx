@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import { Button, InputGroup, Select, ListBox } from "@heroui/react";
-import { SearchIcon, RefreshCw } from "lucide-react";
+import { Clock3, SearchIcon, RefreshCw } from "lucide-react";
+import { SearchHistory } from "../history/SearchHistory";
 import { TaskContext } from "./task-context";
 import { useSearchState } from "./useSearchState";
 import { useAlbumBatch } from "./useAlbumBatch";
@@ -61,7 +63,7 @@ export default function Home({ embedded = false, renderAlbumExtras, idleContent 
                 <div className="w-full max-w-2xl flex flex-col h-full">
 
                     {/* ── search bar ── */}
-                    <form onSubmit={handleSubmit} className="relative mb-3 shrink-0">
+                    <form onSubmit={(event) => { if (tagSearch.isComposing()) event.preventDefault(); else handleSubmit(event); }} className="relative mb-3 shrink-0">
                         <div className="flex min-h-12 w-full">
                             <InputGroup
                                 className="search-input-group relative z-0 h-auto min-h-12 min-w-0 flex-1 items-stretch rounded-r-none focus-within:z-10"
@@ -104,6 +106,8 @@ export default function Home({ embedded = false, renderAlbumExtras, idleContent 
                                         value={tagSearch.draft}
                                         onChange={tagSearch.onInputChange}
                                         onKeyDown={tagSearch.onKeyDown}
+                                        onCompositionStart={tagSearch.onCompositionStart}
+                                        onCompositionEnd={tagSearch.onCompositionEnd}
                                         onFocus={tagSearch.onFocus}
                                         onBlur={tagSearch.onBlur}
                                         role="combobox"
@@ -183,8 +187,10 @@ export default function Home({ embedded = false, renderAlbumExtras, idleContent 
                             </Select>
 
                             <ThemePopover />
+                            <Link to="/history" aria-label="历史记录" title="历史记录" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border text-muted hover:text-foreground"><Clock3 size={18} /></Link>
                         </div>
                     </form>
+                    {!urlQuery && <div className="mb-3 shrink-0"><SearchHistory compact /></div>}
 
                     {isSearchError && (
                         <div className="mb-3 shrink-0">

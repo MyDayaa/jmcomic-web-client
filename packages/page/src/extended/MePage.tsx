@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@heroui/react";
 import { CalendarCheck, LogOut } from "lucide-react";
@@ -166,6 +167,7 @@ function Member({ account }: { account: AccountState }) {
 export function MePage() {
     return (
         <PageFrame title="我的">
+            <Link to="/history" className="block rounded-lg border border-border p-3 text-sm text-brand-600 dark:text-brand-300">本地阅读与搜索历史</Link>
             <AccountGate>{(account) => <Member account={account} />}</AccountGate>
             <Section title="设置"><ExtendedModeToggle /></Section>
         </PageFrame>

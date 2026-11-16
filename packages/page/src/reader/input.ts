@@ -32,18 +32,20 @@ export function getSeekPageFromKey({
   currentPage,
   totalPages,
   pageStep = 10,
+  arrowStep = 1,
 }: {
   key: string;
   currentPage: number;
   totalPages: number;
   pageStep?: number;
+  arrowStep?: number;
 }): number | null {
   const lastPage = Math.max(0, totalPages - 1);
   const targets: Record<string, number> = {
-    ArrowLeft: currentPage - 1,
-    ArrowUp: currentPage - 1,
-    ArrowRight: currentPage + 1,
-    ArrowDown: currentPage + 1,
+    ArrowLeft: currentPage - arrowStep,
+    ArrowUp: currentPage - arrowStep,
+    ArrowRight: currentPage + arrowStep,
+    ArrowDown: currentPage + arrowStep,
     Home: 0,
     End: lastPage,
     PageUp: currentPage - pageStep,

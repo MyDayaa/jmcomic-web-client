@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import { useId, useMemo, useRef, useState, type ChangeEvent, type CompositionEvent, type KeyboardEvent } from "react";
 import { normalizeTerm, parseQuery, parseToken, serializeQuery, upsertToken, type QueryMode, type Token } from "./query";
 import { suggest, type Term } from "./vocabulary";
 
@@ -22,6 +22,9 @@ export function useTagSearch({ value, onChange }: { value: string; onChange: (va
     const [synced, setSynced] = useState(value);
     const [active, setActive] = useState(-1);
     const [open, setOpen] = useState(false);
+    const composingRef = useRef(false);
+    const imeEnterRef = useRef(false);
+    const [composing, setComposing] = useState(false);
 
     if (value !== synced) {
         setSynced(value);
@@ -37,8 +40,8 @@ export function useTagSearch({ value, onChange }: { value: string; onChange: (va
     };
 
     const suggestions: Term[] = useMemo(
-        () => open && state.draft.trim() ? suggest(state.draft, state.tokens.map((token) => token.text)) : [],
-        [open, state.draft, state.tokens],
+        () => !composing && open && state.draft.trim() ? suggest(state.draft, state.tokens.map((token) => token.text)) : [],
+        [composing, open, state.draft, state.tokens],
     );
 
     const commitDraft = () => {
@@ -54,8 +57,7 @@ export function useTagSearch({ value, onChange }: { value: string; onChange: (va
         setOpen(false);
     };
 
-    const onInputChange = (event: ChangeEvent<HTMLInputElement>) => {
-        const text = event.target.value;
+    const acceptText = (text: string) => {
         setOpen(true);
         setActive(-1);
         if (!SEPARATOR.test(text)) {
@@ -73,7 +75,31 @@ export function useTagSearch({ value, onChange }: { value: string; onChange: (va
         update({ ...state, tokens, draft });
     };
 
+    const onInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+        if (composingRef.current || (event.nativeEvent as InputEvent).isComposing) {
+            // Pinyin/double-pinyin spaces and candidate keys belong to the IME.
+            // Keep its draft intact and do not publish phonetic fragments as tokens.
+            setState({ ...state, draft: event.target.value });
+            return;
+        }
+        acceptText(event.target.value);
+    };
+
+    const onCompositionStart = () => { composingRef.current = true; imeEnterRef.current = false; setComposing(true); };
+    const onCompositionEnd = (event: CompositionEvent<HTMLInputElement>) => {
+        composingRef.current = false;
+        setComposing(false);
+        acceptText(event.currentTarget.value);
+    };
+
     const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+        if (composingRef.current || event.nativeEvent.isComposing || event.keyCode === 229) {
+            // Leave candidate confirmation to the IME. The form guard, rather
+            // than preventDefault here, suppresses an accidental native submit.
+            imeEnterRef.current = event.key === 'Enter';
+            return;
+        }
+        imeEnterRef.current = false;
         const count = suggestions.length;
         if (event.key === "ArrowDown" && count) {
             event.preventDefault();
@@ -119,10 +145,14 @@ export function useTagSearch({ value, onChange }: { value: string; onChange: (va
         pick,
         onInputChange,
         onKeyDown,
+        onCompositionStart,
+        onCompositionEnd,
+        isComposing: () => composingRef.current || imeEnterRef.current,
         onFocus: () => setOpen(true),
         onBlur: () => {
             setOpen(false);
-            if (state.draft.trim()) commitDraft();
+            if (!composingRef.current) imeEnterRef.current = false;
+            if (!composingRef.current && state.draft.trim()) commitDraft();
         },
     };
 }
