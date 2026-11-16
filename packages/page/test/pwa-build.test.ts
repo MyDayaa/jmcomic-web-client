@@ -38,11 +38,39 @@ const distDirectory = fileURLToPath(new URL('../dist/', import.meta.url));
 const cloudflarePagesFileLimit = 25 * 1024 * 1024;
 const require = createRequire(import.meta.url);
 
+interface BuildChunk {
+  file: string;
+  imports?: string[];
+  dynamicImports?: string[];
+  isDynamicEntry?: boolean;
+}
+
 async function readDistFile(filename: string) {
   return readFile(path.join(distDirectory, filename), 'utf8');
 }
 
 describe('PWA build output', () => {
+  it('keeps OCR out of startup dependencies while preserving its lazy import', async () => {
+    const manifest = JSON.parse(await readDistFile('.vite/manifest.json')) as Record<string, BuildChunk>;
+    const ocrKey = Object.keys(manifest).find(key => key.includes('@paddleocr/paddleocr-js/dist/index.mjs'));
+    assert.ok(ocrKey, 'OCR runtime must still be available for translation');
+    assert.equal(manifest[ocrKey].isDynamicEntry, true);
+    assert.ok(Object.values(manifest).some(chunk => chunk.dynamicImports?.includes(ocrKey)));
+    const visited = new Set<string>();
+    const visit = (key: string) => {
+      if (visited.has(key)) return;
+      visited.add(key);
+      for (const dependency of manifest[key].imports ?? []) visit(dependency);
+    };
+    visit('index.html');
+    assert.ok(!visited.has(ocrKey), 'Ordinary startup must not download the OCR runtime');
+    let initialBytes = 0;
+    for (const key of visited) initialBytes += (await stat(path.join(distDirectory, manifest[key].file))).size;
+    assert.ok(initialBytes < 1_000_000, `Startup JavaScript grew to ${initialBytes} bytes`);
+    const html = await readDistFile('index.html');
+    assert.ok(!html.includes(manifest[ocrKey].file));
+  });
+
   it('emits a stable, installable web app manifest', async () => {
     const manifest = JSON.parse(await readDistFile('manifest.webmanifest')) as WebAppManifest;
 

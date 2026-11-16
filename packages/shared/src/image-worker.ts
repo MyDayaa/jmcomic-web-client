@@ -1,4 +1,4 @@
-import { createImageProcessor } from 'jmcomic-sdk-pwa/image';
+import { createImageProcessor, imageInfo, type WasmName } from 'jmcomic-sdk-pwa/image';
 import type { ImageOptions } from 'jmcomic-sdk-pwa';
 import jpegDec from 'jmcomic-sdk-pwa/wasm/mozjpeg_dec.wasm?url';
 import jpegEnc from 'jmcomic-sdk-pwa/wasm/mozjpeg_enc.wasm?url';
@@ -6,18 +6,39 @@ import png from 'jmcomic-sdk-pwa/wasm/squoosh_png_bg.wasm?url';
 import webpDec from 'jmcomic-sdk-pwa/wasm/webp_dec.wasm?url';
 
 const assets = { 'jpeg-dec': jpegDec, 'jpeg-enc': jpegEnc, png, 'webp-dec': webpDec };
-const processor = createImageProcessor({ loadWasm: async name => {
-    const response = await fetch(assets[name]);
-    if (!response.ok) throw new Error(`Image codec download failed: HTTP ${response.status}`);
-    return WebAssembly.compile(await response.arrayBuffer());
-} });
+const modules = new Map<WasmName, Promise<WebAssembly.Module>>();
+function loadWasm(name: WasmName): Promise<WebAssembly.Module> {
+    let pending = modules.get(name);
+    if (!pending) {
+        pending = (async () => {
+            const response = await fetch(assets[name]);
+            if (!response.ok) throw new Error(`Image codec download failed: HTTP ${response.status}`);
+            return WebAssembly.compile(await response.arrayBuffer());
+        })();
+        modules.set(name, pending);
+        void pending.catch(() => modules.delete(name));
+    }
+    return pending;
+}
+const processor = createImageProcessor({ loadWasm });
 const context = globalThis as unknown as {
     onmessage: (event: MessageEvent<{ id: number; data: ArrayBuffer; slices: number; options: ImageOptions }>) => void;
     postMessage: (message: unknown, transfer?: Transferable[]) => void;
 };
 context.onmessage = async ({ data: job }) => {
     try {
-        let result = await processor.process(new Uint8Array(job.data), job.slices, job.options);
+        const bytes = new Uint8Array(job.data);
+        // Download only this image's decoder and output encoder, in parallel.
+        // The SDK still validates limits, serializes codec use and restores rows.
+        if (bytes.byteLength <= processor.maxInputBytes && job.options.format !== 'original') {
+            const info = imageInfo(bytes);
+            if (info.mime !== 'image/gif' && info.width * info.height <= 8_000_000) {
+                const decoder = info.mime === 'image/png' ? 'png' : info.mime === 'image/jpeg' ? 'jpeg-dec' : 'webp-dec';
+                const encoder = job.options.format === 'png' ? 'png' : 'jpeg-enc';
+                await Promise.all([loadWasm(decoder), loadWasm(encoder)]);
+            }
+        }
+        let result = await processor.process(bytes, job.slices, job.options);
         // Application exports require JPEG. The portable SDK intentionally passes GIF through.
         if (result.mime === 'image/gif' && job.options.format === 'jpeg') {
             const bitmap = await createImageBitmap(new Blob([result.data as Uint8Array<ArrayBuffer>]));

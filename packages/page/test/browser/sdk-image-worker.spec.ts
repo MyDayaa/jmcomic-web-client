@@ -9,6 +9,42 @@ async function workerUrl() {
     return `/assets-v3/${filename}`;
 }
 
+test('the first WebP page loads its decoder and JPEG encoder concurrently', async ({ page }) => {
+    const image = [...await readFile('../sdk/test/fixtures/720x1016-2.webp')];
+    const requested = new Set<string>();
+    let release!: () => void;
+    const bothRequested = new Promise<void>(resolve => { release = resolve; });
+    await page.route('**/assets-v3/*.wasm', async route => {
+        const name = new URL(route.request().url()).pathname;
+        requested.add(name);
+        if (requested.size === 2) release();
+        // A sequential implementation stalls here rather than fetching its encoder.
+        await bothRequested;
+        await route.continue();
+    });
+    const scripts: string[] = [];
+    page.on('request', request => {
+        if (new URL(request.url()).pathname.endsWith('.js')) scripts.push(request.url());
+    });
+    await page.goto('/pwa-cache-cleanup-v3.txt');
+    const dimensions = await page.evaluate(async ({ url, image }) => {
+        const worker = new Worker(url, { type: 'module' });
+        try {
+            return await new Promise<number[]>((resolve, reject) => {
+                worker.onmessage = ({ data }) => data.error ? reject(new Error(data.error.message)) : resolve([data.result.width, data.result.height]);
+                worker.onerror = event => reject(new Error(event.message));
+                const data = Uint8Array.from(image).buffer;
+                worker.postMessage({ id: 1, data, slices: 2, options: { format: 'jpeg' } }, [data]);
+            });
+        } finally { worker.terminate(); }
+    }, { url: await workerUrl(), image });
+    expect(dimensions).toEqual([720, 1016]);
+    expect([...requested].some(path => path.includes('webp_dec-'))).toBe(true);
+    expect([...requested].some(path => path.includes('mozjpeg_enc-'))).toBe(true);
+    expect(requested.size).toBe(2);
+    expect(scripts.every(url => url.includes('/image-worker-'))).toBe(true);
+});
+
 test('production image worker restores real PNG/WebP/JPEG and keeps the UI responsive', async ({ page }) => {
     const fixtures: Record<string, number[]> = {};
     for (const format of ['png', 'webp', 'jpg']) fixtures[format] = [...await readFile(`../sdk/test/fixtures/720x1016-2.${format}`)];

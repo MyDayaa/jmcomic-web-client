@@ -21,7 +21,11 @@ const releaseMetadata = {
 
 // https://vite.dev/config/
 export default defineConfig({
-  worker: { format: 'es' },
+  worker: {
+    format: 'es',
+    // Codec wrappers are small; avoid fetching them one by one after each WASM.
+    rolldownOptions: { output: { codeSplitting: false } },
+  },
   resolve: {
     conditions: [
       'onnxruntime-web-use-extern-wasm',
@@ -33,13 +37,9 @@ export default defineConfig({
   // Isolate recovery assets from the legacy namespaces implicated in the incident.
   build: {
     assetsDir: 'assets-v3',
-    rollupOptions: {
-      output: {
-        manualChunks(id) {
-          if (id.includes('/node_modules/@paddleocr/paddleocr-js/')) return 'ocr-runtime'
-        },
-      },
-    },
+    manifest: true,
+    // Let the dynamic OCR import own its dependencies. A forced manual chunk
+    // captured shared helpers and pulled the entire OCR runtime into startup.
   },
   define: {
     __APP_RELEASE_ID__: JSON.stringify(releaseMetadata.commit),

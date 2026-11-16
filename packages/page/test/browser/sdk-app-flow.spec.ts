@@ -5,12 +5,30 @@ import { readFile } from 'node:fs/promises';
 // PWA registration/upgrades are covered separately by pwa-upgrade.spec.ts.
 test.use({ serviceWorkers: 'block' });
 
+test('the optional OCR runtime remains importable on demand', async ({ page }) => {
+    const manifest = JSON.parse(await readFile('dist/.vite/manifest.json', 'utf8')) as Record<string, { file: string }>;
+    const runtime = Object.entries(manifest).find(([key]) => key.includes('@paddleocr/paddleocr-js/dist/index.mjs'));
+    expect(runtime).toBeDefined();
+    await page.goto('/pwa-cache-cleanup-v3.txt');
+    const available = await page.evaluate(async url => {
+        const { PaddleOCR } = await import(url);
+        return typeof PaddleOCR.create === 'function';
+    }, `/${runtime![1].file}`);
+    expect(available).toBe(true);
+});
+
 test('a fresh direct reader link fetches its chapter and displays a decoded page', async ({ page }) => {
     const image = await readFile('../sdk/test/fixtures/720x1016-2.png');
     const album = { id: '123', name: 'Direct reader fixture', images: [], description: null, totalViews: '1', likes: '1', series: [], seriesID: '', author: ['Fixture'], tags: [], works: [], actors: [] };
     const photo = { id: '123', name: album.name, scrambleId: 1, images: [{ name: '001.png', url: 'http://backend.test/images/001.png' }] };
     const paths = new Set<string>();
     const errors: string[] = [];
+    const scripts = new Set<string>();
+    const manifest = JSON.parse(await readFile('dist/.vite/manifest.json', 'utf8')) as Record<string, { file: string }>;
+    const ocrFiles = Object.entries(manifest).filter(([key]) => /paddleocr|onnxruntime/.test(key)).map(([, chunk]) => chunk.file);
+    page.on('request', request => {
+        if (request.resourceType() === 'script') scripts.add(new URL(request.url()).pathname.slice(1));
+    });
     page.on('pageerror', error => errors.push(error.message));
     await page.route('http://backend.test/**', async route => {
         const path = new URL(route.request().url()).pathname;
@@ -27,6 +45,7 @@ test('a fresh direct reader link fetches its chapter and displays a decoded page
     expect(paths.has('/photo/123')).toBe(true);
     expect(paths.has('/images/001.png')).toBe(true);
     expect(errors).toEqual([]);
+    expect([...scripts].filter(script => ocrFiles.includes(script))).toEqual([]);
 });
 
 test('fresh search, detail and reader process upstream images through the SDK worker', async ({ page }) => {
