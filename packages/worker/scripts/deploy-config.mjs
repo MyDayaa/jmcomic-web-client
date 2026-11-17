@@ -1,4 +1,4 @@
-// Writes wrangler.deploy.json from wrangler.jsonc, binding ALBUM_CACHE_KV only when ALBUM_CACHE_KV_ID is set.
+// KV is opt-in; browser, memory and edge caches do not require a KV binding.
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const source = new URL('../wrangler.jsonc', import.meta.url);
@@ -8,11 +8,12 @@ const kvId = process.env.ALBUM_CACHE_KV_ID?.trim();
 // Cache writes are opt-in so free accounts do not exhaust their daily KV quota.
 config.vars = { ...config.vars, ALBUM_CACHE_KV_WRITES: process.env.ALBUM_CACHE_KV_WRITES === 'true' ? 'true' : 'false' };
 
-if (kvId) {
+if (kvId && process.env.ALBUM_CACHE_KV_ENABLED === 'true') {
 	config.kv_namespaces = [{ binding: 'ALBUM_CACHE_KV', id: kvId }];
-	console.log('ALBUM_CACHE_KV_ID 已设置，部署时绑定 ALBUM_CACHE_KV。');
+	console.log('已显式启用可选 KV，部署时绑定 ALBUM_CACHE_KV。');
 } else {
-	console.log('未设置 ALBUM_CACHE_KV_ID，部署时不绑定 KV。');
+	delete config.kv_namespaces;
+	console.log('部署使用内存和边缘缓存，不绑定或访问 KV。');
 }
 
 writeFileSync(target, JSON.stringify(config, null, '\t') + '\n');

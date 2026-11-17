@@ -28,14 +28,14 @@
    - **API 令牌**：在 **我的个人资料 → API 令牌** 中，用“编辑 Cloudflare Workers”模板创建。
    - **账户 ID**：在 **Workers & Pages** 概览页的右侧可以找到。
    - 如果账号第一次使用 Workers，先打开一次 **Workers & Pages**，让 Cloudflare 生成 `workers.dev` 子域。
-3. （可选）在 **存储和数据库 → KV** 中创建一个命名空间，并复制它的 ID。默认仅读取已有 KV 缓存，新缓存写入边缘 Cache API 和内存，避免耗尽免费 KV 每日写入额度；不配置 KV 也能正常运行。确需持久写入时，可在本地部署命令额外设置 `ALBUM_CACHE_KV_WRITES=true`，或在自定义部署流程显式传入该环境变量。
+3. 无需配置 KV：浏览器使用 IndexedDB 本地缓存，Worker 使用内存和 Cloudflare 边缘 Cache API。部署默认不绑定、不读写 KV，即使仓库仍保存旧的 `ALBUM_CACHE_KV_ID` 也不会启用。边缘未命中时回源，过期可用数据先返回、后台更新。
 4. 在 fork 的 **Settings → Secrets and variables → Actions** 中添加 Secrets：
 
    | Secret | 是否必需 | 说明 |
    | --- | --- | --- |
    | `CF_API_TOKEN` | 必需 | Cloudflare API 令牌 |
    | `CF_ACCOUNT_ID` | 必需 | Cloudflare 账户 ID |
-   | `ALBUM_CACHE_KV_ID` | 可选 | KV 命名空间 ID |
+   | `ALBUM_CACHE_KV_ID` | 无需配置 | 旧版可选设置；默认不会绑定 KV |
    | `ACCOUNT_SESSION_KEY` | 可选 | 扩展模式账号功能的会话加密密钥，用 `openssl rand -base64 32` 生成。不配置时无法登录，其他功能不受影响 |
 
 5. 打开 **Actions → Verify and release → Run workflow**，选择 `main` 分支并运行。首次运行会执行完整测试，需要十几分钟。
@@ -53,10 +53,10 @@
 corepack enable
 pnpm install
 pnpm --filter @tiny-client/worker exec wrangler login
-ALBUM_CACHE_KV_ID=<KV 命名空间 ID> pnpm run worker:deploy
+pnpm run worker:deploy
 ```
 
-不使用 KV 时，去掉 `ALBUM_CACHE_KV_ID=…`。部署成功后，终端会输出 Worker 地址。
+部署成功后，终端会输出 Worker 地址。只有明确需要可选 KV 时，才额外传入 `ALBUM_CACHE_KV_ENABLED=true ALBUM_CACHE_KV_ID=…`；写入还需单独设置 `ALBUM_CACHE_KV_WRITES=true`。
 
 </details>
 

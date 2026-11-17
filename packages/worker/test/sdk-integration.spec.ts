@@ -11,7 +11,7 @@ function encrypted(value: unknown, key: string) {
   return Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]).toString('base64');
 }
 const md5 = (value: string) => createHash('md5').update(value).digest('hex');
-it('retains PWA JSON, refresh, batching and concurrent request isolation using the actual SDK', async () => {
+it('retains PWA JSON, edge caching after memory reset, refresh and batching without any KV binding', async () => {
   let albumCalls = 0;
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input));
@@ -35,7 +35,7 @@ it('retains PWA JSON, refresh, batching and concurrent request isolation using t
   try { expect((await probe.initialize()).version).toBe('2.0.16'); } finally { probe.dispose(); }
   async function request(path: string) {
     const ctx = createExecutionContext();
-    const response = await worker.fetch(new Request(`https://app.test${path}`), env, ctx);
+    const response = await worker.fetch(new Request(`https://app.test${path}`), { ...env, ALBUM_CACHE_KV: undefined }, ctx);
     await waitOnExecutionContext(ctx); return response;
   }
   const search = await request('/search?query=sdk-migration');
@@ -44,7 +44,11 @@ it('retains PWA JSON, refresh, batching and concurrent request isolation using t
   const initial: any = await first.json();
   expect(initial).toMatchObject({ id: '123', images: ['001.png'], description: null, totalViews: '1', likes: '2', seriesID: '', author: ['Author'] });
   expect(first.headers.get('X-Cache-Meta')).toBeTruthy();
-  expect((await (await request('/album/123')).json() as any).totalViews).toBe('1');
+  clearResourceCacheForTest();
+  const edgeHit = await request('/album/123');
+  const meta = JSON.parse(decodeURIComponent(edgeHit.headers.get('X-Cache-Meta')!));
+  expect(meta['album:123'].source).toBe('edge');
+  expect((await edgeHit.json() as any).totalViews).toBe('1');
   expect(albumCalls).toBe(1);
   expect((await (await request('/album/123?refresh=1')).json() as any).totalViews).toBe('2');
   const photos = await Promise.all([request('/photo/123?refresh=1'), request('/photo/123?refresh=1')]);

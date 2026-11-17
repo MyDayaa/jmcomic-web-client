@@ -177,4 +177,28 @@ describe('resource cache', () => {
 		const result = await readResources([series], 'https://worker.test/expired', env.ALBUM_CACHE_KV);
 		expect(result.has(getResourceCacheKey(series))).toBe(false);
 	});
+
+	it('serves stale edge data during an outage and returns to upstream after expiry without KV', async () => {
+		const resource = album('edge-only-lifecycle');
+		const requestUrl = 'https://worker.test/edge-only-lifecycle';
+		const ctx = createExecutionContext();
+		const value = { id: resource.id, series: [{ id: 'chapter' }] };
+		await resolveResource({ descriptor: resource, forceRefresh: false, requestUrl, ctx, fetcher: async () => value });
+		await waitOnExecutionContext(ctx);
+		clearResourceCacheForTest();
+		vi.advanceTimersByTime(2 * 60_000);
+		const cached = (await readResources([resource], requestUrl)).get(getResourceCacheKey(resource));
+		expect(cached).toMatchObject({ source: 'edge', freshness: 'stale' });
+		const outage = createExecutionContext();
+		const result = await resolveResource({ descriptor: resource, cached, forceRefresh: false, requestUrl, ctx: outage, fetcher: async () => { throw new Error('upstream offline'); } });
+		expect(result.value).toEqual(value);
+		await waitOnExecutionContext(outage);
+		vi.advanceTimersByTime(14 * 60_000);
+		clearResourceCacheForTest();
+		expect((await readResources([resource], requestUrl)).size).toBe(0);
+		const recovery = createExecutionContext();
+		const refreshed = await resolveResource({ descriptor: resource, forceRefresh: false, requestUrl, ctx: recovery, fetcher: async () => ({ ...value, name: 'updated' }) });
+		expect(refreshed).toMatchObject({ source: 'upstream', freshness: 'fresh', value: { name: 'updated' } });
+		await waitOnExecutionContext(recovery);
+	});
 });
