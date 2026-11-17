@@ -520,6 +520,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
 					forceRefresh,
 					requestUrl: request.url,
 					kv: env.ALBUM_CACHE_KV,
+					kvWriteEnabled: env.ALBUM_CACHE_KV_WRITES === 'true',
 					ctx,
 					fetcher: () => fetchAlbumWithRetry(id, clients.primary, clients.retry),
 				});
@@ -540,6 +541,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
 					forceRefresh,
 					requestUrl: request.url,
 					kv: env.ALBUM_CACHE_KV,
+					kvWriteEnabled: env.ALBUM_CACHE_KV_WRITES === 'true',
 					ctx,
 					fetcher: () => fetchBatchPhotoWithRetry(id, clients.primary, clients.retry),
 				});
@@ -568,6 +570,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
 							forceRefresh,
 							requestUrl: request.url,
 							kv: env.ALBUM_CACHE_KV,
+							kvWriteEnabled: env.ALBUM_CACHE_KV_WRITES === 'true',
 							ctx,
 							fetcher: () => fetchBatchPhotoWithRetry(photoId, clients.primary, clients.retry),
 						});
@@ -606,6 +609,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
 								forceRefresh,
 								requestUrl: request.url,
 								kv: env.ALBUM_CACHE_KV,
+								kvWriteEnabled: env.ALBUM_CACHE_KV_WRITES === 'true',
 								ctx,
 								fetcher: () => fetchAlbumWithRetry(albumId, clients.primary, clients.retry),
 							}),
@@ -615,6 +619,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext):
 								forceRefresh,
 								requestUrl: request.url,
 								kv: env.ALBUM_CACHE_KV,
+								kvWriteEnabled: env.ALBUM_CACHE_KV_WRITES === 'true',
 								ctx,
 								fetcher: () => fetchBatchPhotoWithRetry(albumId, clients.primary, clients.retry),
 							}),

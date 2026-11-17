@@ -28,7 +28,7 @@
    - **API 令牌**：在 **我的个人资料 → API 令牌** 中，用“编辑 Cloudflare Workers”模板创建。
    - **账户 ID**：在 **Workers & Pages** 概览页的右侧可以找到。
    - 如果账号第一次使用 Workers，先打开一次 **Workers & Pages**，让 Cloudflare 生成 `workers.dev` 子域。
-3. （可选）在 **存储和数据库 → KV** 中创建一个命名空间，并复制它的 ID。配置后，Worker 会缓存作品信息；不配置也能正常运行。
+3. （可选）在 **存储和数据库 → KV** 中创建一个命名空间，并复制它的 ID。默认仅读取已有 KV 缓存，新缓存写入边缘 Cache API 和内存，避免耗尽免费 KV 每日写入额度；不配置 KV 也能正常运行。确需持久写入时，可在本地部署命令额外设置 `ALBUM_CACHE_KV_WRITES=true`，或在自定义部署流程显式传入该环境变量。
 4. 在 fork 的 **Settings → Secrets and variables → Actions** 中添加 Secrets：
 
    | Secret | 是否必需 | 说明 |

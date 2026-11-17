@@ -5,6 +5,8 @@ const source = new URL('../wrangler.jsonc', import.meta.url);
 const target = new URL('../wrangler.deploy.json', import.meta.url);
 const config = JSON.parse(readFileSync(source, 'utf8'));
 const kvId = process.env.ALBUM_CACHE_KV_ID?.trim();
+// Cache writes are opt-in so free accounts do not exhaust their daily KV quota.
+config.vars = { ...config.vars, ALBUM_CACHE_KV_WRITES: process.env.ALBUM_CACHE_KV_WRITES === 'true' ? 'true' : 'false' };
 
 if (kvId) {
 	config.kv_namespaces = [{ binding: 'ALBUM_CACHE_KV', id: kvId }];

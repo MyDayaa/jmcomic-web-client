@@ -188,6 +188,7 @@ function persistResource(
 	requestUrl: string,
 	kv: KVNamespace | undefined,
 	ctx: ExecutionContext,
+	kvWriteEnabled: boolean,
 ) {
 	const descriptor = { kind: envelope.kind, id: envelope.id } satisfies ResourceDescriptor;
 	setMemory(descriptor, envelope);
@@ -201,8 +202,10 @@ function persistResource(
 	} catch {
 		// Cache API is best effort.
 	}
-	if (kv) {
-		writes.push(kv.put(storageKey(descriptor), JSON.stringify(envelope), { expirationTtl: ttlSeconds }));
+	if (kv && kvWriteEnabled) {
+		// Catch both binding throws and promise rejections: cache quotas must never
+		// turn a successful upstream read into a failed page request.
+		writes.push(Promise.resolve().then(() => kv.put(storageKey(descriptor), JSON.stringify(envelope), { expirationTtl: ttlSeconds })));
 	}
 	if (writes.length > 0) {
 		ctx.waitUntil(Promise.allSettled(writes).then(() => undefined));
@@ -215,10 +218,12 @@ export async function resolveResource<T>(options: {
 	forceRefresh: boolean;
 	requestUrl: string;
 	kv?: KVNamespace;
+	/** KV is read-only unless explicitly enabled; edge and memory writes remain active. */
+	kvWriteEnabled?: boolean;
 	ctx: ExecutionContext;
 	fetcher: () => Promise<T | null>;
 }): Promise<CachedResource<T>> {
-	const { descriptor, cached, forceRefresh, requestUrl, kv, ctx, fetcher } = options;
+	const { descriptor, cached, forceRefresh, requestUrl, kv, ctx, fetcher, kvWriteEnabled = false } = options;
     let upstreamFlights = requestFlights.get(ctx);
     if (!upstreamFlights) { upstreamFlights = new Map(); requestFlights.set(ctx, upstreamFlights); }
 	if (cached?.freshness === 'fresh' && !forceRefresh) return cached as CachedResource<T>;
@@ -236,7 +241,7 @@ export async function resolveResource<T>(options: {
 					value,
 					fetchedAt: Date.now(),
 				};
-				persistResource(envelope, requestUrl, kv, ctx);
+				persistResource(envelope, requestUrl, kv, ctx, kvWriteEnabled);
 				return envelope as CacheEnvelope;
 			})
 			.finally(() => {

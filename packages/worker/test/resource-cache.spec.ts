@@ -66,6 +66,45 @@ describe('resource cache', () => {
 		expect(values.get(getResourceCacheKey(stable))?.freshness).toBe('fresh');
 	});
 
+	it('keeps KV read-only by default while retaining memory and edge caching', async () => {
+		const resource = album('read-only-default');
+		const put = vi.fn();
+		const kv = { put } as unknown as KVNamespace;
+		const ctx = createExecutionContext();
+		const options = { descriptor: resource, forceRefresh: true, requestUrl: 'https://worker.test/read-only', kv, ctx, fetcher: async () => ({ id: resource.id, series: [] }) };
+		expect((await resolveResource(options)).source).toBe('upstream');
+		await waitOnExecutionContext(ctx);
+		expect(put).not.toHaveBeenCalled();
+		expect((await readResources([resource], options.requestUrl)).get(getResourceCacheKey(resource))?.source).toBe('l1');
+		clearResourceCacheForTest();
+		expect((await readResources([resource], options.requestUrl)).get(getResourceCacheKey(resource))?.source).toBe('edge');
+	});
+
+	it('persists to KV only after an explicit opt-in', async () => {
+		const resource = album('write-opt-in');
+		const ctx = createExecutionContext();
+		await resolveResource({ descriptor: resource, forceRefresh: false, requestUrl: 'https://worker.test/opt-in', kv: env.ALBUM_CACHE_KV, kvWriteEnabled: true, ctx, fetcher: async () => ({ id: resource.id, series: [] }) });
+		await waitOnExecutionContext(ctx);
+		expect(await env.ALBUM_CACHE_KV.get(`resource:v2:album:${resource.id}`, 'json')).toMatchObject({ value: { id: resource.id } });
+	});
+
+	it('returns fresh upstream data despite synchronous or asynchronous KV quota errors', async () => {
+		for (const synchronous of [true, false]) {
+			const resource = album(`quota-${synchronous}`);
+			const put = vi.fn(() => {
+				const error = new Error('KV PUT failed: 429 daily quota exceeded');
+				if (synchronous) throw error;
+				return Promise.reject(error);
+			});
+			const kv = { put } as unknown as KVNamespace;
+			const ctx = createExecutionContext();
+			const result = await resolveResource({ descriptor: resource, forceRefresh: true, requestUrl: 'https://worker.test/quota', kv, kvWriteEnabled: true, ctx, fetcher: async () => ({ id: resource.id, series: [] }) });
+			await waitOnExecutionContext(ctx);
+			expect(result).toMatchObject({ freshness: 'fresh', source: 'upstream', value: { id: resource.id } });
+			expect(put).toHaveBeenCalledTimes(1);
+		}
+	});
+
 	it('coalesces concurrent upstream misses and persists through waitUntil', async () => {
 		const resource = album('singleflight');
 		const ctx = createExecutionContext();
