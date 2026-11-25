@@ -7,7 +7,7 @@ const member = { uid: '42', username: 'reader', email: 'r@example.test', level: 
 const comic = (id: string, name: string) => ({ id, name, author: 'Fixture', image: '', category: null, liked: null, favorite: null, updatedAt: null });
 
 /** Mocks the Worker. Returns the request log so tests can check what the page sent. */
-async function mockBackend(page: Page, options: { favoriteStatus?: number } = {}) {
+async function mockBackend(page: Page, options: { favoriteStatus?: number; latestCount?: number } = {}) {
     const requests: { path: string; method: string; auth: string | null; body: unknown }[] = [];
     let favorite = false;
     await page.route('http://backend.test/**', async (route) => {
@@ -19,7 +19,7 @@ async function mockBackend(page: Page, options: { favoriteStatus?: number } = {}
         const routes: Record<string, unknown> = {
             '/api/mobile/config': { accountEnabled: true },
             '/api/mobile/promote': [{ id: '26', title: '热门推荐', type: 'promote', filterValue: '26', items: [comic('1', 'Promoted fixture')] }],
-            '/api/mobile/latest': [],
+            '/api/mobile/latest': Array.from({ length: options.latestCount ?? 0 }, (_, index) => comic(String(index + 100), `Latest fixture ${index + 1}`)),
             '/api/mobile/categories': { categories: [{ id: '0', name: '最新A漫', slug: '', total: 0 }], blocks: [] },
             '/api/mobile/categories/filter': { total: 1, items: [comic('2', 'Ranked fixture')] },
             '/api/mobile/account/login': { session: 'v1.sealed', expiresAt: Date.now() + 3_600_000, member },
@@ -61,6 +61,30 @@ test('extended mode is off by default and keeps the search page unchanged', asyn
 
 test.describe('mobile viewport', () => {
     test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+    test('search history scrolls out of view with the home feed', async ({ page }) => {
+        await page.setViewportSize({ width: 360, height: 640 });
+        await mockBackend(page, { latestCount: 18 });
+        await page.addInitScript(() => {
+            localStorage.setItem('jm-extended-mode:v1', JSON.stringify({ version: 1, enabled: true, acknowledged: true }));
+            const entries = Array.from({ length: 8 }, (_, index) => ({
+                query: `手机首页搜索记录测试关键词 ${index + 1}`,
+                category: '0', order: 'mr', time: 'a', updatedAt: Date.now() - index,
+            }));
+            localStorage.setItem('jm-search-history:v1', JSON.stringify(entries));
+        });
+        await page.goto('/');
+
+        const history = page.getByRole('region', { name: '搜索历史' });
+        const search = page.getByRole('combobox', { name: '搜索内容' });
+        await expect(history).toBeInViewport();
+        const lastItem = page.getByText('Latest fixture 18', { exact: true });
+        await lastItem.evaluate(item => item.scrollIntoView({ block: 'end' }));
+
+        await expect(lastItem).toBeInViewport();
+        await expect(history).not.toBeInViewport();
+        await expect(search).toBeInViewport();
+    });
 
     test('enables extended mode, browses, logs in when needed and resumes the favorite', async ({ page }) => {
         const requests = await mockBackend(page);

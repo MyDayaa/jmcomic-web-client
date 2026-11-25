@@ -190,7 +190,6 @@ export default function Home({ embedded = false, renderAlbumExtras, idleContent 
                             <Link to="/history" aria-label="历史记录" title="历史记录" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border text-muted hover:text-foreground"><Clock3 size={18} /></Link>
                         </div>
                     </form>
-                    {!urlQuery && <div className="mb-3 shrink-0"><SearchHistory compact /></div>}
 
                     {isSearchError && (
                         <div className="mb-3 shrink-0">
@@ -218,9 +217,12 @@ export default function Home({ embedded = false, renderAlbumExtras, idleContent 
                             </div>
                         )}
 
-                        {/* ── extended mode: recommendations until the first search ── */}
-                        {idleContent && !urlQuery && (
-                            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-3">{idleContent}</div>
+                        {/* History and recommendations share the same scroll area. */}
+                        {!urlQuery && (
+                            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-3">
+                                <SearchHistory compact />
+                                {idleContent}
+                            </div>
                         )}
 
                         {/* ── direct match ── */}
